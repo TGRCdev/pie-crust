@@ -2,9 +2,18 @@ use glam::Vec3;
 
 use crate::tool::{ Tool, AABB };
 
+#[derive(Clone, Copy, Debug)]
 pub struct Sphere {
     pub origin: Vec3,
     pub radius: f32,
+}
+
+impl Sphere {
+    pub fn new(origin: Vec3, radius: f32) -> Self {
+        Self {
+            origin, radius
+        }
+    }
 }
 
 impl Tool for Sphere {

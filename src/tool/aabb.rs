@@ -1,4 +1,5 @@
 use glam::{ Vec3, vec3 };
+use tinyvec::ArrayVec;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AABB {
@@ -68,6 +69,11 @@ impl AABB {
         });
 
         return corners;
+    }
+
+    #[inline]
+    pub fn size(&self) -> Vec3 {
+        self.end - self.start
     }
 
     fn intersect_axis(range1: (f32, f32), range2: (f32, f32)) -> AxisIntersectType
@@ -141,4 +147,28 @@ impl AABB {
             });
         }
     }
+
+    pub fn octree_subdivide(&self) -> [AABB; 8] {
+        let half_size = self.size() / 2.0;
+        let cells: ArrayVec<[AABB; 8]> = crate::CUBE_CORNERS.into_iter().map(|idx| {
+            let start = self.start + (half_size * idx);
+            let end = start + half_size;
+            AABB {
+                start,
+                end
+            }
+        }).collect();
+        cells.into_inner()
+    }
+}
+
+#[test]
+fn octree_subdivide_test() {
+    let aabb = AABB{
+        start: Vec3::ZERO,
+        end: Vec3::ONE,
+    };
+
+    let subdiv = aabb.octree_subdivide();
+    println!("{subdiv:?}");
 }
