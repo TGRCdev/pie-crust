@@ -29,7 +29,7 @@ impl NaiveOctreeCell {
         }
 
         // Subdivide 8 points into 8 cells
-        let points = utils::subdivide_values(self.values);
+        let points = utils::subdivide_cell(self.values);
 
         // Create new cells
         // We have constructed all the corners needed for our 8 new cells.

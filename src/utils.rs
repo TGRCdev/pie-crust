@@ -1,44 +1,51 @@
 use lerp::Lerp;
 
-/// Splits a cube of 8 corner values into
-/// 8 cubes of 27 corner values
+/// Splits a cube into 8 cubes, while interpolating corner values
 /// 
 /// Before:
-/// ```
+/// ```text
 ///       6-----------------7
-///      /                 /|
-///     /                 / |
-///    /                 /  |
-///   /                 /   |
-///  /                 /    |
-/// 2-----------------3     5
-/// |                 |    /
-/// |                 |   /
-/// |                 |  /
-/// |                 | /
-/// |                 |/
+///      /|                /|
+///     / |               / |
+///    /  |              /  |
+///   /   |             /   |
+///  /    |            /    |
+/// 2-----------------3     |
+/// |     |           |     |
+/// |     4-----------|-----5
+/// |    /            |    /
+/// |   /             |   /
+/// |  /              |  /
+/// | /               | /
+/// |/                |/
 /// 0-----------------1
 /// ```
 /// 
 /// After:
-/// ```
-///       24-------25--------26
-///       /        /        /|
-///      /        /        / |
-///    15--------16-------17 23
-///    /        /        /| /|
-///   /        /        / |/ |
-///  6--------7--------8  14 20
-///  |        |        | /| /
-///  |        |        |/ |/
-///  3--------4--------5  11
-///  |        |        | /
-///  |        |        |/
-///  0--------1--------2
+/// ```text
+///          6--------7 6--------7
+///         /        /|/        /|
+///        /        / /        / |
+///       2--------3 2--------3  |
+///       |        | |        |  5
+///     6--------7 6--------7 | /
+///    /|       /|/|       /| |/-7
+///   / |      / / |      / |-1 /|
+///  2--------3 2--------3  |  / |
+///  |  4-----|-|  4-----|--5-3  |
+///  | /      | | /      | /--|--5
+///  |/       |/|/       |/ 7 | /
+///  0--------1 0--------1 /| |/
+///   / |      / / |      / |-1
+///  2--------3 2--------3  |
+///  |  4     | |  4-----|--5
+///  | /      | | /      | /
+///  |/       |/|/       |/
+///  0--------1 0--------1
+/// Note: Gap between cubes is exaggerated. In practice, 
+/// adjacent points are the same.
 ///```
-/// Note that the format of indices changes after
-/// subdivision from binary positioning to layer-by-layer.
-pub fn subdivide_values(cube: [f32; 8]) -> [[f32; 8]; 8] {
+pub fn subdivide_cell(cell: [f32; 8]) -> [[f32; 8]; 8] {
         // Construct 19 new points, for a total
         // of 27 points
         // 
@@ -67,14 +74,14 @@ pub fn subdivide_values(cube: [f32; 8]) -> [[f32; 8]; 8] {
         // 0-----------------2
         // New points: 8
         // Total points: 8
-        points[0] = cube[0];
-        points[2] = cube[1];
-        points[6] = cube[2];
-        points[8] = cube[3];
-        points[18] = cube[4];
-        points[20] = cube[5];
-        points[24] = cube[6];
-        points[26] = cube[7];
+        points[0] = cell[0];
+        points[2] = cell[1];
+        points[6] = cell[2];
+        points[8] = cell[3];
+        points[18] = cell[4];
+        points[20] = cell[5];
+        points[24] = cell[6];
+        points[26] = cell[7];
 
         // Next, lerp between corners.
         //      24-------25--------26
@@ -153,6 +160,7 @@ pub fn subdivide_values(cube: [f32; 8]) -> [[f32; 8]; 8] {
                 ]
         };
 
+        // Split the points into 8 cubes and return
         [
                 make_cell(0),
                 make_cell(1),
