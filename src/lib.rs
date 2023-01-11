@@ -1,11 +1,6 @@
+#![warn(unused_extern_crates)]
 pub mod tool;
 use glam::{ Vec3, vec3 };
-use rayon::Scope;
-use tool::{ Tool, Action, AABB };
-
-use generational_arena::{ Index, Arena };
-use parking_lot::{ RwLock, Mutex };
-use lerp::Lerp;
 
 pub use glam;
 
