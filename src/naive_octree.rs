@@ -67,7 +67,7 @@ impl NaiveOctreeCell {
         self.children.is_some()
     }
 
-    pub fn apply_tool<T: Tool + Copy>(&mut self, tool: T, action: Action, cell_aabb: AABB, max_depth: u8) {
+    pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
         cell_aabb.calculate_corners().into_iter().zip(self.values.iter_mut()).for_each(|(pos, value)| {
             let newval = tool.value(pos);
             action.apply_value(value, newval);
@@ -158,7 +158,7 @@ impl NaiveOctree {
         }
     }
 
-    pub fn apply_tool<T: Tool + Copy>(&mut self, tool: T, action: Action, max_depth: u8) {
+    pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
         self.root.apply_tool(tool, action, AABB { start: Vec3::ZERO, end: Vec3::ONE, }, max_depth);
     }
 
@@ -182,7 +182,7 @@ fn terrain_test() {
     );
     let action = Action::Place;
     let start = std::time::Instant::now();
-    terrain.apply_tool(tool, action, 5);
+    terrain.apply_tool(&tool, action, 5);
     let end = std::time::Instant::now();
     let duration = end - start;
 
@@ -197,4 +197,27 @@ fn terrain_test() {
     println!("{mesh:?}");
 
     mesh.write_obj_to_file(&"naive_octree.obj");
+}
+
+#[test]
+fn cell_mesh_test() {
+    use crate::tool::Sphere;
+
+    let mut cell = NaiveOctreeCell::default();
+    let tool = Sphere {
+        origin: Vec3::ZERO,
+        radius: 0.3,
+    };
+
+    cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0);
+
+    let mut verts = Vec::new();
+    cell.generate_mesh(&mut verts, 0, AABB::ONE_CUBIC_METER);
+
+    let mesh = Mesh {
+        vertices: verts,
+        indices: None,
+        normals: None,
+    };
+    mesh.write_obj_to_file(&"cell_mesh_test.obj");
 }

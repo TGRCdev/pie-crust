@@ -27,6 +27,11 @@ impl AABB {
         self.end = self.end.max(vec);
     }
 
+    pub const ONE_CUBIC_METER: Self = Self {
+        start: Vec3::ZERO,
+        end: Vec3::ONE,
+    };
+
     pub fn contains(&self, point: Vec3) -> bool
     {
         return point.to_array().iter()
