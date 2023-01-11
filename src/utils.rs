@@ -38,7 +38,7 @@ use lerp::Lerp;
 ///```
 /// Note that the format of indices changes after
 /// subdivision from binary positioning to layer-by-layer.
-pub fn subdivide_values(cube: [f32; 8]) -> [f32; 27] {
+pub fn subdivide_values(cube: [f32; 8]) -> [[f32; 8]; 8] {
         // Construct 19 new points, for a total
         // of 27 points
         // 
@@ -140,5 +140,27 @@ pub fn subdivide_values(cube: [f32; 8]) -> [f32; 27] {
         // Total points: 27
         points[13] = points[4].lerp(points[22], 0.5);
 
-        points
+        let make_cell = |start_index: usize| -> [f32; 8] {
+                [
+                        points[start_index  ],
+                        points[start_index+1],
+                        points[start_index+3],
+                        points[start_index+4],
+                        points[start_index+9],
+                        points[start_index+10],
+                        points[start_index+12],
+                        points[start_index+13],
+                ]
+        };
+
+        [
+                make_cell(0),
+                make_cell(1),
+                make_cell(3),
+                make_cell(4),
+                make_cell(9),
+                make_cell(10),
+                make_cell(12),
+                make_cell(13),
+        ]
 }

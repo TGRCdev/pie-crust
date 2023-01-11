@@ -1,5 +1,3 @@
-use crate::Cell;
-
 #[derive(Clone, Copy, Debug)]
 pub enum Action
 {

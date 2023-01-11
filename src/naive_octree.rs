@@ -28,40 +28,28 @@ impl NaiveOctreeCell {
             return;
         }
 
-        // Subdivide 8 points into 27 points
+        // Subdivide 8 points into 8 cells
         let points = utils::subdivide_values(self.values);
 
         // Create new cells
         // We have constructed all the corners needed for our 8 new cells.
-        macro_rules! make_cell {
-            // Macro to take an index to represent corner 0
-            // and fill the rest of the corners accordingly
-            ($first_corner:expr) => {
+        let make_cell = |cell: usize| -> NaiveOctreeCell {
                 NaiveOctreeCell {
-                    values: [
-                        points[$first_corner  ],
-                        points[$first_corner+1],
-                        points[$first_corner+3],
-                        points[$first_corner+4],
-                        points[$first_corner+9],
-                        points[$first_corner+10],
-                        points[$first_corner+12],
-                        points[$first_corner+13],
-                    ],
+                values: points[cell],
                     children: None,
                     depth: self.depth + 1,
                 }
-            }
-        }
+        };
+
         let new_cells = Box::new([
-            make_cell!(0),
-            make_cell!(1),
-            make_cell!(3),
-            make_cell!(4),
-            make_cell!(9),
-            make_cell!(10),
-            make_cell!(12),
-            make_cell!(13),
+            make_cell(0),
+            make_cell(1),
+            make_cell(2),
+            make_cell(3),
+            make_cell(4),
+            make_cell(5),
+            make_cell(6),
+            make_cell(7),
         ]);
 
         self.children = Some(new_cells);
@@ -116,14 +104,14 @@ impl NaiveOctreeCell {
         }
 
         let mut cubeindex = 0;
-        if self.values[0] < 0.0 { cubeindex |= 1;   }
-        if self.values[1] < 0.0 { cubeindex |= 2;   }
-        if self.values[2] < 0.0 { cubeindex |= 4;   }
-        if self.values[3] < 0.0 { cubeindex |= 8;   }
-        if self.values[4] < 0.0 { cubeindex |= 16;  }
-        if self.values[5] < 0.0 { cubeindex |= 32;  }
-        if self.values[6] < 0.0 { cubeindex |= 64;  }
-        if self.values[7] < 0.0 { cubeindex |= 128; }
+        if self.values[0] > 0.0 { cubeindex |= 1;   }
+        if self.values[1] > 0.0 { cubeindex |= 2;   }
+        if self.values[2] > 0.0 { cubeindex |= 4;   }
+        if self.values[3] > 0.0 { cubeindex |= 8;   }
+        if self.values[4] > 0.0 { cubeindex |= 16;  }
+        if self.values[5] > 0.0 { cubeindex |= 32;  }
+        if self.values[6] > 0.0 { cubeindex |= 64;  }
+        if self.values[7] > 0.0 { cubeindex |= 128; }
 
         let corners = cell_aabb.calculate_corners();
         let interp = |index1, index2| -> Vec3 {
@@ -151,13 +139,9 @@ impl NaiveOctreeCell {
             if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
             if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
 
-            let mut tri_idx_iter = TRI_TABLE[cubeindex].into_iter();
-            while let Some(tri_idx) = tri_idx_iter.next() {
-                if tri_idx == -1 {
-                    break;
-                }
+            TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
                 vertices.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
-            }
+            });
         }
     }
 }
