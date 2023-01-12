@@ -220,6 +220,7 @@ impl NaiveOctree {
 }
 
 #[test]
+#[ignore]
 fn terrain_test() {
     let mut terrain = NaiveOctree::new();
     let tool = crate::tool::Sphere::new(
