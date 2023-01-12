@@ -68,15 +68,26 @@ impl NaiveOctreeCell {
     }
 
     pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
+        // Store the results of tool application
+        //
+        // We need to compute these before subdivision to decide if we need
+        // to subdivide, but we need to apply them after subdivision so it
+        // doesn't muddy up the interpolation
+        let mut newvals = self.values;
         let cube_scale = 1.0 / (2u32.pow(self.depth as u32) as f32);
-        cell_aabb.calculate_corners().into_iter().zip(self.values.iter_mut()).for_each(|(pos, value)| {
+        cell_aabb.calculate_corners().into_iter().zip(newvals.iter_mut()).for_each(|(pos, value)| {
             let newval = tool.value(pos, cube_scale);
             action.apply_value(value, newval);
         });
 
+        // TODO: Rewrite all these conditions for performance (if needed)
+        let diff_signs = newvals.windows(2).any(|vals| vals[0].signum() != vals[1].signum());
+        
+        use IntersectType::*;
         // Check if subdivision is needed
         if self.depth < max_depth {
-            if let IntersectType::Intersects(a) = tool.tool_aabb().intersect(cell_aabb)
+            if (tool.is_convex() && (diff_signs || matches!(tool.tool_aabb().intersect(cell_aabb), ContainedBy))) ||
+                (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
             {
                 // Tool intersects but does not contain, the cell intersects the isosurface
                 // subdivide for more detail
@@ -89,18 +100,9 @@ impl NaiveOctreeCell {
                     .zip(child_aabbs.into_iter())
                     .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
             }
-            else if self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum()) {
-                // AABB encompasses the cell, but the isosurface was still intersected
-                self.subdivide_cell();
-                let child_aabbs = cell_aabb.octree_subdivide();
-                // Recursive apply to each child cell
-                self.children.as_mut()
-                    .unwrap()
-                    .iter_mut()
-                    .zip(child_aabbs.into_iter())
-                    .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
-            }
         }
+
+        self.values = newvals;
     }
 
     pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
@@ -220,25 +222,25 @@ impl NaiveOctree {
 fn terrain_test() {
     let mut terrain = NaiveOctree::new();
     let tool = crate::tool::Sphere::new(
-        Vec3::ZERO,
-        0.3
+        Vec3::splat(0.5),
+        0.421
     );
     let action = Action::Place;
     let start = std::time::Instant::now();
-    terrain.apply_tool(&tool, action, 4);
+    terrain.apply_tool(&tool, action, 6);
     let end = std::time::Instant::now();
     let duration = end - start;
 
     println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     let start = std::time::Instant::now();
-    let mut mesh = terrain.generate_mesh(8);
+    let mut mesh = terrain.generate_mesh(255);
     let end = std::time::Instant::now();
     let duration = end - start;
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     mesh.write_obj_to_file(&"naive_octree.obj");
-    terrain.generate_octree_frame_mesh(8).write_obj_to_file(&"naive_octree_frame.obj");
+    terrain.generate_octree_frame_mesh(6).write_obj_to_file(&"naive_octree_frame.obj");
 }
 
 #[test]
