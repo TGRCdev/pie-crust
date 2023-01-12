@@ -67,7 +67,7 @@ impl NaiveOctreeCell {
         self.children.is_some()
     }
 
-    pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
+    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
         // Store the results of tool application
         //
         // We need to compute these before subdivision to decide if we need
@@ -85,21 +85,22 @@ impl NaiveOctreeCell {
         
         use IntersectType::*;
         // Check if subdivision is needed
-        if self.depth < max_depth {
+        if self.children.is_none() && self.depth < max_depth {
             if (tool.is_convex() && (diff_signs || matches!(tool.tool_aabb().intersect(cell_aabb), ContainedBy))) ||
                 (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
             {
                 // Tool intersects but does not contain, the cell intersects the isosurface
                 // subdivide for more detail
                 self.subdivide_cell();
-                let child_aabbs = cell_aabb.octree_subdivide();
-                // Recursive apply to each child cell
-                self.children.as_mut()
-                    .unwrap()
-                    .iter_mut()
-                    .zip(child_aabbs.into_iter())
-                    .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
             }
+        }
+
+        if let Some(children) = self.children.as_mut() {
+            let child_aabbs = cell_aabb.octree_subdivide();
+            // Recursive apply to each child cell
+            children.iter_mut()
+                .zip(child_aabbs.into_iter())
+                .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
         }
 
         self.values = newvals;
