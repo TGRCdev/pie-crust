@@ -21,8 +21,16 @@ impl Tool for Sphere {
         ((self.radius - (pos - self.origin).length()) / scale).clamp(-1.0,1.0)
     }
 
-    fn aabb(&self) -> AABB {
-        
+    fn tool_aabb(&self) -> AABB {
         AABB::from_radius(self.origin, self.radius)
+    }
+
+    fn aoe_aabb(&self) -> AABB {
+        AABB::from_radius(self.origin, self.radius + 1.0)
+    }
+
+    #[inline(always)]
+    fn is_concave(&self) -> bool {
+        false
     }
 }

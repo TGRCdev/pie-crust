@@ -75,12 +75,22 @@ impl NaiveOctreeCell {
         });
 
         // Check if subdivision is needed
-        if self.depth < max_depth{
-            if let IntersectType::Intersects(a) = tool.aabb().intersect(cell_aabb) {
-                assert!(a.size().is_negative_bitmask() == 0);
-                println!("Intersect {a:?}");
+        if self.depth < max_depth {
+            if let IntersectType::Intersects(a) = tool.tool_aabb().intersect(cell_aabb)
+            {
                 // Tool intersects but does not contain, the cell intersects the isosurface
                 // subdivide for more detail
+                self.subdivide_cell();
+                let child_aabbs = cell_aabb.octree_subdivide();
+                // Recursive apply to each child cell
+                self.children.as_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(child_aabbs.into_iter())
+                    .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
+            }
+            else if self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum()) {
+                // AABB encompasses the cell, but the isosurface was still intersected
                 self.subdivide_cell();
                 let child_aabbs = cell_aabb.octree_subdivide();
                 // Recursive apply to each child cell
@@ -142,10 +152,6 @@ impl NaiveOctreeCell {
             if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
             if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
 
-            if TRI_TABLE[cubeindex].len() == 9 {
-                println!("Bad Tris - Cubeindex {cubeindex} - Edge Table {} - Tri count {}", EDGE_TABLE[cubeindex], TRI_TABLE[cubeindex].len());
-                println!("{:?}", TRI_TABLE[cubeindex]);
-            }
             TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
                 vertices.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
             });
@@ -164,7 +170,7 @@ impl NaiveOctreeCell {
         else {
             let cube_scale = 1.0 / (2u32.pow(self.depth as u32) as f32);
             let cube_corners = cell_aabb.calculate_corners();
-            let cell_size = cell_aabb.size();
+            let cell_size = cell_aabb.size;
             let line_scale = cube_scale * 0.01;
             vertices.extend(line_vertices(cube_corners[0], cell_size.x, line_scale, LineDir::Right));
             vertices.extend(line_vertices(cube_corners[0], cell_size.y, line_scale, LineDir::Up));
@@ -186,7 +192,7 @@ impl NaiveOctree {
     }
 
     pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
-        self.root.apply_tool(tool, action, AABB { start: Vec3::ZERO, end: Vec3::ONE, }, max_depth);
+        self.root.apply_tool(tool, action, AABB::ONE_CUBIC_METER, max_depth);
     }
 
     pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
@@ -223,7 +229,6 @@ fn terrain_test() {
     let end = std::time::Instant::now();
     let duration = end - start;
 
-    //println!("Terrain: {terrain:#?}");
     println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     let start = std::time::Instant::now();
@@ -231,7 +236,6 @@ fn terrain_test() {
     let end = std::time::Instant::now();
     let duration = end - start;
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
-    println!("{mesh:?}");
 
     mesh.write_obj_to_file(&"naive_octree.obj");
     terrain.generate_octree_frame_mesh(8).write_obj_to_file(&"naive_octree_frame.obj");
