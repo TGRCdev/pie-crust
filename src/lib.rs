@@ -10,14 +10,14 @@ pub use mesh::*;
 mod marching_cubes;
 
 pub const CUBE_CORNERS: [Vec3; 8] = [
-    Vec3::ZERO,
+    vec3(0.0,0.0,0.0),
     vec3(1.0,0.0,0.0),
     vec3(0.0,1.0,0.0),
     vec3(1.0,1.0,0.0),
     vec3(0.0,0.0,1.0),
     vec3(1.0,0.0,1.0),
-    vec3(0.0,1.0,0.0),
-    Vec3::ONE,
+    vec3(0.0,1.0,1.0),
+    vec3(1.0,1.0,1.0),
 ];
 
 mod naive_octree;

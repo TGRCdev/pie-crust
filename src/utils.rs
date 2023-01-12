@@ -1,4 +1,6 @@
 use lerp::Lerp;
+use glam::Vec3;
+use arrayvec::ArrayVec;
 
 /// Splits a cube into 8 cubes, while interpolating corner values
 /// 
@@ -171,4 +173,54 @@ pub fn subdivide_cell(cell: [f32; 8]) -> [[f32; 8]; 8] {
                 make_cell(12),
                 make_cell(13),
         ]
+}
+
+pub enum LineDir {
+        Left,
+        Right,
+        Down,
+        Up,
+        Forward,
+        Backward,
+}
+
+pub fn line_vertices(pos: Vec3, length: f32, scale: f32, line_dir: LineDir) -> [Vec3; 36] {
+        const CUBE_INDICES: [usize; 36] = [
+                // Top face
+                2,6,7,
+                2,7,3,
+                // Bottom face
+                0,4,5,
+                0,5,1,
+                // Left face
+                6,2,0,
+                4,6,0,
+                // Right face
+                3,7,5,
+                1,3,5,
+                // Back face
+                2,3,0,
+                3,1,0,
+                // Front face
+                7,6,4,
+                5,7,4,
+        ];
+        let mut cube_verts = crate::CUBE_CORNERS;
+        cube_verts.iter_mut().for_each(|vert| *vert = (*vert - 0.5) * scale);
+
+        match line_dir {
+            LineDir::Left => [0,2,4,6].into_iter().for_each(|idx| cube_verts[idx].x -= length),
+            LineDir::Right => [1,3,5,7].into_iter().for_each(|idx| cube_verts[idx].x += length),
+            LineDir::Down => [0,1,4,5].into_iter().for_each(|idx| cube_verts[idx].y -= length),
+            LineDir::Up => [2,3,6,7].into_iter().for_each(|idx| cube_verts[idx].y += length),
+            LineDir::Forward => [4,5,6,7].into_iter().for_each(|idx| cube_verts[idx].z += length),
+            LineDir::Backward => [0,1,2,3].into_iter().for_each(|idx| cube_verts[idx].z -= length),
+        }
+        cube_verts.iter_mut().for_each(|vert| *vert += pos);
+
+        let mut verts: ArrayVec<Vec3, 36> = ArrayVec::new();
+
+        CUBE_INDICES.into_iter().for_each(|idx| verts.push(cube_verts[idx]));
+
+        return verts.into_inner().unwrap();
 }

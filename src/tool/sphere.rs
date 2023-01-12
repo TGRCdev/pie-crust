@@ -17,15 +17,12 @@ impl Sphere {
 }
 
 impl Tool for Sphere {
-    fn value_unclamped(&self, pos: Vec3) -> f32 {
-        self.value_local(pos - self.origin)
-    }
-
-    fn value_local_unclamped(&self, local_pos: Vec3) -> f32 {
-        self.radius - local_pos.length()
+    fn value(&self, pos: Vec3, scale: f32) -> f32 {
+        ((self.radius - (pos - self.origin).length()) / scale).clamp(-1.0,1.0)
     }
 
     fn aabb(&self) -> AABB {
+        
         AABB::from_radius(self.origin, self.radius)
     }
 }

@@ -1,5 +1,5 @@
 use glam::{ Vec3, vec3 };
-use tinyvec::ArrayVec;
+use arrayvec::ArrayVec;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct AABB {
@@ -52,24 +52,15 @@ impl AABB {
     }
 
     pub fn from_radius(pos: Vec3, radius: f32) -> Self {
-        let radius_vec = vec3(radius, radius, radius);
         Self {
-            start: pos - radius_vec,
-            end: pos + radius_vec,
+            start: pos - radius,
+            end: pos + radius,
         }
     }
 
     pub fn calculate_corners(&self) -> [Vec3; 8] {
-        let corners = [
-            vec3(0.,0.,0.),
-            vec3(1.,0.,0.),
-            vec3(0.,1.,0.),
-            vec3(1.,1.,0.),
-            vec3(0.,0.,1.),
-            vec3(1.,0.,1.),
-            vec3(0.,1.,0.),
-            vec3(1.,1.,1.)
-        ].map(|offset| {
+        assert!(self.size().is_negative_bitmask() == 0);
+        let corners = crate::CUBE_CORNERS.map(|offset| {
             self.start + (self.end * offset)
         });
 
@@ -104,6 +95,8 @@ impl AABB {
     }
 
     pub fn intersect(&self, other: AABB) -> IntersectType {
+        assert!(self.size().is_negative_bitmask() == 0);
+        assert!(other.size().is_negative_bitmask() == 0);
         let axes_intersects = [
             Self::intersect_axis(
                 (self.start.x, self.end.x),
@@ -155,15 +148,20 @@ impl AABB {
 
     pub fn octree_subdivide(&self) -> [AABB; 8] {
         let half_size = self.size() / 2.0;
-        let cells: ArrayVec<[AABB; 8]> = crate::CUBE_CORNERS.into_iter().map(|idx| {
+        let mut cells: ArrayVec<AABB, 8> = ArrayVec::new();
+        
+        crate::CUBE_CORNERS.into_iter().for_each(|idx| {
             let start = self.start + (half_size * idx);
             let end = start + half_size;
-            AABB {
-                start,
-                end
-            }
-        }).collect();
-        cells.into_inner()
+            cells.push(
+        AABB {
+                    start,
+                    end
+                }
+            );
+        });
+        assert!(cells.windows(2).all(|a| {a[0].size() == a[1].size()}));
+        cells.into_inner().unwrap()
     }
 }
 
