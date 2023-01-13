@@ -20,7 +20,7 @@ pub const CUBE_CORNERS: [Vec3; 8] = [
     vec3(1.0,1.0,1.0),
 ];
 
-mod naive_octree;
-pub use naive_octree::*;
+pub mod naive_octree;
+pub mod linear_octree;
 
 pub mod utils;
