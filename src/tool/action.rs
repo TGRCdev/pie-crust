@@ -11,14 +11,12 @@ impl Action
     {
         match self {
             Action::Place => {
-                if val > *point {
-                    *point = val;
-                }
+                *point = point.max(val);
             },
             Action::Remove => {
                 if val > 0.0
                 {
-                    *point = -1.;
+                    *point = point.min(-val);
                 }
                 else if val > -1.0
                 {

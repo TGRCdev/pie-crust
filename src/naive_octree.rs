@@ -67,6 +67,10 @@ impl NaiveOctreeCell {
         self.children.is_some()
     }
 
+    pub fn intersects_surface(&self) -> bool {
+        self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum())
+    }
+
     pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
         // Store the results of tool application
         //
@@ -82,11 +86,16 @@ impl NaiveOctreeCell {
 
         // TODO: Rewrite all these conditions for performance (if needed)
         let diff_signs = newvals.windows(2).any(|vals| vals[0].signum() != vals[1].signum());
+
+        let tool_aabb = match action {
+            Action::Remove => tool.aoe_aabb(),
+            Action::Place => tool.tool_aabb(),
+        };
         
         use IntersectType::*;
         // Check if subdivision is needed
         if self.children.is_none() && self.depth < max_depth {
-            if (tool.is_convex() && (diff_signs || matches!(tool.tool_aabb().intersect(cell_aabb), ContainedBy))) ||
+            if (tool.is_convex() && (diff_signs || matches!(tool_aabb.intersect(cell_aabb), ContainedBy))) ||
                 (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
             {
                 // Tool intersects but does not contain, the cell intersects the isosurface
@@ -103,6 +112,11 @@ impl NaiveOctreeCell {
             children.iter_mut()
                 .zip(child_aabbs.into_iter())
                 .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
+            
+            // Check if collapse is needed
+            if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
+                self.collapse_cell();
+            }
         }
     }
 
@@ -224,27 +238,30 @@ impl NaiveOctree {
 #[test]
 #[ignore]
 fn terrain_test() {
+    use std::time::Instant;
+    use crate::tool::Sphere;
+
     let mut terrain = NaiveOctree::new(100.0);
-    let tool = crate::tool::Sphere::new(
+    let mut tool = Sphere::new(
         Vec3::splat(50.0),
         30.0,
     );
-    let action = Action::Place;
-    let start = std::time::Instant::now();
-    terrain.apply_tool(&tool, action, 8);
-    let end = std::time::Instant::now();
-    let duration = end - start;
-
+    
+    let start = Instant::now();
+    terrain.apply_tool(&tool, Action::Place, 8);
+    let duration = Instant::now() - start;
     println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
-    let start = std::time::Instant::now();
+    tool.radius = 20.0;
+    tool.origin.y = 70.0;
+    terrain.apply_tool(&tool, Action::Remove, 8);
+
+    let start = Instant::now();
     let mut mesh = terrain.generate_mesh(255);
-    let end = std::time::Instant::now();
-    let duration = end - start;
+    let duration = Instant::now() - start;
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     mesh.write_obj_to_file(&"naive_octree.obj");
-    terrain.generate_octree_frame_mesh(255).write_obj_to_file(&"naive_octree_frame.obj");
 }
 
 #[test]
