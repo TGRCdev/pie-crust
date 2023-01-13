@@ -3,7 +3,8 @@ use crate::{
     utils,
 };
 use glam::Vec3;
-use crate::Mesh;
+use crate::{ Mesh, marching_cubes::march_cube };
+use std::sync::Mutex;
 
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
@@ -121,8 +122,6 @@ impl NaiveOctreeCell {
     }
 
     pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
-        use crate::marching_cubes::march_cube;
-
         if self.depth < max_depth {
             if let Some(children) = self.children.as_ref() {
                 let child_aabbs = cell_aabb.octree_subdivide();
@@ -135,6 +134,28 @@ impl NaiveOctreeCell {
 
         let corners = cell_aabb.calculate_corners();
         vertices.extend(march_cube(&corners, &self.values));
+    }
+
+    pub fn par_generate_mesh(&self, vertices: &Mutex<Vec<Vec3>>, max_depth: u8, cell_aabb: AABB) {
+        use rayon::prelude::*;
+
+        if self.depth < max_depth {
+            if let Some(children) = self.children.as_ref() {
+                let child_aabbs = cell_aabb.octree_subdivide();
+                children.par_iter()
+                .zip(child_aabbs.into_par_iter())
+                .for_each(|(child, aabb)| {
+                    child.par_generate_mesh(vertices, max_depth, aabb)
+                });
+                return;
+            }
+        }
+        
+        let tris = march_cube(&cell_aabb.calculate_corners(), &self.values);
+
+        vertices.lock()
+            .unwrap()
+            .extend(tris);
     }
 
     pub fn generate_octree_frame_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
@@ -186,6 +207,19 @@ impl NaiveOctree {
         }
     }
 
+    pub fn par_generate_mesh(&self, max_depth: u8) -> Mesh {
+        let verts = Mutex::new(Vec::new());
+        rayon::in_place_scope(|_| {
+            self.root.par_generate_mesh(&verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        });
+
+        Mesh {
+            vertices: verts.into_inner().unwrap(),
+            indices: None,
+            normals: None,
+        }
+    }
+
     pub fn generate_octree_frame_mesh(&self, max_depth: u8) -> Mesh {
         let mut verts = Vec::new();
         self.root.generate_octree_frame_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
@@ -218,6 +252,35 @@ fn terrain_test() {
     let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate Mesh");
     
     mesh.write_obj_to_file(&"naive_octree.obj");
+}
+
+#[test]
+#[ignore]
+fn par_terrain_test() {
+    use std::time::Instant;
+    use crate::tool::Sphere;
+
+    let mut terrain = NaiveOctree::new(100.0);
+    let mut tool = Sphere::new(
+        Vec3::splat(50.0),
+        30.0,
+    );
+    
+    let start = Instant::now();
+    terrain.apply_tool(&tool, Action::Place, 8);
+    let duration = Instant::now() - start;
+    println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
+
+    tool.radius = 20.0;
+    tool.origin.y = 70.0;
+    terrain.apply_tool(&tool, Action::Remove, 8);
+
+    let start = Instant::now();
+    let mut mesh = terrain.par_generate_mesh(255);
+    let duration = Instant::now() - start;
+    println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
+
+    mesh.write_obj_to_file(&"par_naive_octree.obj");
 }
 
 #[test]
