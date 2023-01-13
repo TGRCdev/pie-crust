@@ -74,7 +74,7 @@ impl NaiveOctreeCell {
         // to subdivide, but we need to apply them after subdivision so it
         // doesn't muddy up the interpolation
         let mut newvals = self.values;
-        let cube_scale = 1.0 / (2u32.pow(self.depth as u32) as f32);
+        let cube_scale = cell_aabb.size.x;
         cell_aabb.calculate_corners().into_iter().zip(newvals.iter_mut()).for_each(|(pos, value)| {
             let newval = tool.value(pos, cube_scale);
             action.apply_value(value, newval);
@@ -95,6 +95,8 @@ impl NaiveOctreeCell {
             }
         }
 
+        self.values = newvals;
+
         if let Some(children) = self.children.as_mut() {
             let child_aabbs = cell_aabb.octree_subdivide();
             // Recursive apply to each child cell
@@ -102,8 +104,6 @@ impl NaiveOctreeCell {
                 .zip(child_aabbs.into_iter())
                 .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
         }
-
-        self.values = newvals;
     }
 
     pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
@@ -171,7 +171,7 @@ impl NaiveOctreeCell {
             })
         }
         else {
-            let cube_scale = 1.0 / (2u32.pow(self.depth as u32) as f32);
+            let cube_scale = cell_aabb.size.x;
             let cube_corners = cell_aabb.calculate_corners();
             let cell_size = cell_aabb.size;
             let line_scale = cube_scale * 0.01;
@@ -185,22 +185,24 @@ impl NaiveOctreeCell {
 #[derive(Debug)]
 pub struct NaiveOctree {
     root: NaiveOctreeCell,
+    pub scale: f32,
 }
 
 impl NaiveOctree {
-    pub fn new() -> Self {
+    pub fn new(scale: f32) -> Self {
         Self {
             root: Default::default(),
+            scale,
         }
     }
 
     pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
-        self.root.apply_tool(tool, action, AABB::ONE_CUBIC_METER, max_depth);
+        self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, max_depth);
     }
 
     pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
         let mut verts = Vec::new();
-        self.root.generate_mesh(&mut verts, max_depth, AABB::ONE_CUBIC_METER);
+        self.root.generate_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
         return Mesh {
             vertices: verts,
             indices: None,
@@ -210,7 +212,7 @@ impl NaiveOctree {
 
     pub fn generate_octree_frame_mesh(&self, max_depth: u8) -> Mesh {
         let mut verts = Vec::new();
-        self.root.generate_octree_frame_mesh(&mut verts, max_depth, AABB::ONE_CUBIC_METER);
+        self.root.generate_octree_frame_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
         return Mesh {
             vertices: verts,
             indices: None,
@@ -222,14 +224,14 @@ impl NaiveOctree {
 #[test]
 #[ignore]
 fn terrain_test() {
-    let mut terrain = NaiveOctree::new();
+    let mut terrain = NaiveOctree::new(100.0);
     let tool = crate::tool::Sphere::new(
-        Vec3::splat(0.5),
-        0.421
+        Vec3::splat(50.0),
+        30.0,
     );
     let action = Action::Place;
     let start = std::time::Instant::now();
-    terrain.apply_tool(&tool, action, 6);
+    terrain.apply_tool(&tool, action, 8);
     let end = std::time::Instant::now();
     let duration = end - start;
 
@@ -242,7 +244,7 @@ fn terrain_test() {
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     mesh.write_obj_to_file(&"naive_octree.obj");
-    terrain.generate_octree_frame_mesh(6).write_obj_to_file(&"naive_octree_frame.obj");
+    terrain.generate_octree_frame_mesh(255).write_obj_to_file(&"naive_octree_frame.obj");
 }
 
 #[test]
