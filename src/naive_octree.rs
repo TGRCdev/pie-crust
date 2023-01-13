@@ -122,6 +122,57 @@ impl NaiveOctreeCell {
         }
     }
 
+    fn par_apply_tool<T: Tool + Sync + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
+        use rayon::prelude::*;
+        
+        // Store the results of tool application
+        //
+        // We need to compute these before subdivision to decide if we need
+        // to subdivide, but we need to apply them after subdivision so it
+        // doesn't muddy up the interpolation
+        let mut newvals = self.values;
+        let cube_scale = cell_aabb.size.x;
+        cell_aabb.calculate_corners().into_iter().zip(newvals.iter_mut()).for_each(|(pos, value)| {
+            let newval = tool.value(pos, cube_scale);
+            action.apply_value(value, newval);
+        });
+
+        // TODO: Rewrite all these conditions for performance (if needed)
+        let diff_signs = newvals.windows(2).any(|vals| vals[0].signum() != vals[1].signum());
+
+        let tool_aabb = match action {
+            Action::Remove => tool.aoe_aabb(),
+            Action::Place => tool.tool_aabb(),
+        };
+        
+        use IntersectType::*;
+        // Check if subdivision is needed
+        if self.children.is_none() && self.depth < max_depth {
+            if (tool.is_convex() && (diff_signs || matches!(tool_aabb.intersect(cell_aabb), ContainedBy))) ||
+                (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
+            {
+                // Tool intersects but does not contain, the cell intersects the isosurface
+                // subdivide for more detail
+                self.subdivide_cell();
+            }
+        }
+
+        self.values = newvals;
+
+        if let Some(children) = self.children.as_mut() {
+            let child_aabbs = cell_aabb.octree_subdivide();
+            // Recursive apply to each child cell
+            children.par_iter_mut()
+                .zip(child_aabbs.into_par_iter())
+                .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
+            
+            // Check if collapse is needed
+            if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
+                self.collapse_cell();
+            }
+        }
+    }
+
     pub fn generate_mc_tris(&self, corners: [Vec3; 8]) -> ArrayVec<Vec3, 15> {
         use crate::marching_cubes::{ EDGE_TABLE, TRI_TABLE, vert_interp };
 
@@ -241,8 +292,14 @@ impl NaiveOctree {
         }
     }
 
-    pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
+    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
         self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, max_depth);
+    }
+
+    pub fn par_apply_tool<T: Tool + ?Sized + Sync>(&mut self, tool: &T, action: Action, max_depth: u8) {
+        rayon::in_place_scope(|_| {
+            self.root.par_apply_tool(tool, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, max_depth);
+        });
     }
 
     pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
@@ -321,13 +378,13 @@ fn par_terrain_test() {
     );
     
     let start = Instant::now();
-    terrain.apply_tool(&tool, Action::Place, 8);
+    terrain.par_apply_tool(&tool, Action::Place, 8);
     let duration = Instant::now() - start;
     println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
     tool.radius = 20.0;
     tool.origin.y = 70.0;
-    terrain.apply_tool(&tool, Action::Remove, 8);
+    terrain.par_apply_tool(&tool, Action::Remove, 8);
 
     let start = Instant::now();
     let mut mesh = terrain.par_generate_mesh(255);
