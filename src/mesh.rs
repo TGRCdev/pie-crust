@@ -16,6 +16,59 @@ pub enum Normals {
     Face(Vec<Vec3>),
 }
 
+pub struct UnindexedMesh {
+    pub tris: Vec<[Vec3; 3]>,
+    pub normals: Option<Normals>,
+}
+
+impl UnindexedMesh {
+    pub fn index(mut self) -> super::Mesh {
+        let mut vert_map: HashMap<[NotNan<f32>; 3], (u32, u32)> = HashMap::new();
+        let mut indices = Vec::new();
+        self.tris.iter().flatten().enumerate().for_each(|(i, vert)|
+        {
+            let cur_len = vert_map.len();
+            indices.push(
+                vert_map.entry(
+                    vert.to_array().map(|x| NotNan::new(x).unwrap())
+                ).or_insert((i as u32, cur_len as u32)).1
+            );
+        });
+        let mut vertices = Vec::with_capacity(vert_map.len());
+        vertices.resize(vert_map.len(), Vec3::ZERO);
+
+        if self.normals.as_ref().filter(|n| matches!(n, Normals::Vertex(_))).is_some()
+        {
+            if let Normals::Vertex(normals) = self.normals.take().unwrap()
+            {
+                let mut new_normals = Vec::with_capacity(vert_map.len());
+                vert_map.iter().for_each(|(_,&(old_index, new_index))| {
+                    new_normals[new_index as usize] = normals[old_index as usize];
+                });
+                new_normals.truncate(vert_map.len());
+
+                self.normals = Some(Normals::Vertex(new_normals));
+            }
+        }
+
+        vert_map.into_iter().map(|(vert, (_, new_index))| {
+            (
+                new_index as usize,
+                Vec3::from(vert.map(|x| f32::from(x)))
+            )
+        })
+        .for_each(|(index, vert)| {
+            vertices[index] = vert;
+        });
+
+        Mesh {
+            vertices,
+            indices: Some(indices),
+            normals: self.normals,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Mesh {
     pub indices: Option<Vec<u32>>,

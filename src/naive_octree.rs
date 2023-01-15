@@ -3,9 +3,10 @@ use crate::{
     utils,
 };
 use glam::Vec3;
-use crate::Mesh;
+use crate::{ UnindexedMesh, Mesh };
 use std::sync::Mutex;
 use arrayvec::ArrayVec;
+use lockfree::stack::Stack;
 
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
@@ -173,7 +174,7 @@ impl NaiveOctreeCell {
         }
     }
 
-    pub fn generate_mc_tris(&self, corners: [Vec3; 8]) -> ArrayVec<Vec3, 15> {
+    pub fn generate_mc_tris(&self, corners: [Vec3; 8]) -> ArrayVec<[Vec3; 3], 5> {
         use crate::marching_cubes::{ EDGE_TABLE, TRI_TABLE, vert_interp };
 
         let mut tris = ArrayVec::new();
@@ -213,29 +214,33 @@ impl NaiveOctreeCell {
             if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
             if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
         
-            TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
-                tris.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
+            TRI_TABLE[cubeindex].chunks_exact(3).for_each(|tri_idx| {
+                tris.push([
+                    edge_verts[tri_idx[0] as usize].expect("Tried to use invalid edge vertex!"),
+                    edge_verts[tri_idx[1] as usize].expect("Tried to use invalid edge vertex!"),
+                    edge_verts[tri_idx[2] as usize].expect("Tried to use invalid edge vertex!"),
+                ]);
             });
         }
 
         tris
     }
 
-    pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
+    pub fn generate_mesh(&self, tris: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         if self.depth < max_depth {
             if let Some(children) = self.children.as_ref() {
                 let child_aabbs = cell_aabb.octree_subdivide();
                 children.iter()
                 .zip(child_aabbs.into_iter())
-                .for_each(|(child, aabb)| child.generate_mesh(vertices, max_depth, aabb));
+                .for_each(|(child, aabb)| child.generate_mesh(tris, max_depth, aabb));
                 return;
             }
         }
 
-        vertices.extend(self.generate_mc_tris(cell_aabb.calculate_corners()));
+        tris.extend(self.generate_mc_tris(cell_aabb.calculate_corners()));
     }
 
-    pub fn par_generate_mesh(&self, vertices: &Mutex<Vec<Vec3>>, max_depth: u8, cell_aabb: AABB) {
+    pub fn par_generate_mesh(&self, tri_stack: &Stack<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         use rayon::prelude::*;
 
         if self.depth < max_depth {
@@ -244,17 +249,14 @@ impl NaiveOctreeCell {
                 children.par_iter()
                 .zip(child_aabbs.into_par_iter())
                 .for_each(|(child, aabb)| {
-                    child.par_generate_mesh(vertices, max_depth, aabb)
+                    child.par_generate_mesh(tri_stack, max_depth, aabb)
                 });
                 return;
             }
         }
         
         let tris = self.generate_mc_tris(cell_aabb.calculate_corners());
-
-        vertices.lock()
-            .unwrap()
-            .extend(tris);
+        tri_stack.extend(tris);
     }
 
     pub fn generate_octree_frame_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
@@ -302,25 +304,23 @@ impl NaiveOctree {
         });
     }
 
-    pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
-        let mut verts = Vec::new();
-        self.root.generate_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
-        return Mesh {
-            vertices: verts,
-            indices: None,
+    pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let mut tris = Vec::new();
+        self.root.generate_mesh(&mut tris, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        return UnindexedMesh {
+            tris,
             normals: None,
         }
     }
 
-    pub fn par_generate_mesh(&self, max_depth: u8) -> Mesh {
-        let verts = Mutex::new(Vec::new());
+    pub fn par_generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let tris = Stack::new();
         rayon::in_place_scope(|_| {
-            self.root.par_generate_mesh(&verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+            self.root.par_generate_mesh(&tris, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
         });
 
-        Mesh {
-            vertices: verts.into_inner().unwrap(),
-            indices: None,
+        UnindexedMesh {
+            tris: tris.collect(),
             normals: None,
         }
     }
@@ -362,7 +362,7 @@ fn terrain_test() {
     let duration = Instant::now() - start;
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
-    mesh.write_obj_to_file(&"naive_octree.obj");
+    mesh.index().write_obj_to_file(&"naive_octree.obj");
 }
 
 #[test]
@@ -391,28 +391,5 @@ fn par_terrain_test() {
     let duration = Instant::now() - start;
     println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
 
-    mesh.write_obj_to_file(&"par_naive_octree.obj");
-}
-
-#[test]
-fn cell_mesh_test() {
-    use crate::tool::Sphere;
-
-    let mut cell = NaiveOctreeCell::default();
-    let tool = Sphere {
-        origin: Vec3::ZERO,
-        radius: 0.3,
-    };
-
-    cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0);
-
-    let mut verts = Vec::new();
-    cell.generate_mesh(&mut verts, 0, AABB::ONE_CUBIC_METER);
-
-    let mesh = Mesh {
-        vertices: verts,
-        indices: None,
-        normals: None,
-    };
-    mesh.write_obj_to_file(&"cell_mesh_test.obj");
+    mesh.index().write_obj_to_file(&"par_naive_octree.obj");
 }
