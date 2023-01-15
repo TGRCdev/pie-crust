@@ -1,10 +1,5 @@
-use crate::{
-    tool::{ Tool, Action, AABB, IntersectType },
-    utils,
-};
 use bitvec::prelude::*;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// 64 bit index that describes the exact location of a point
 /// in an octree of maximum depth 19.
 /// ```text
@@ -36,12 +31,38 @@ use bitvec::prelude::*;
 /// This represents a 3-bit unsigned integer for which corner of
 /// the final cell to access.
 /// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TreeKey(u64);
+
+impl Default for TreeKey {
+    fn default() -> Self {
+        Self(0)
+    }
+}
 
 impl TreeKey {
     pub fn from_u64(num: u64) -> Option<Self> {
         let key = TreeKey(num);
         Some(key).filter(|key| key._sanity_check())
+    }
+
+    pub fn from_iter<I: IntoIterator<Item = u8>>(cell_iter: I, corner: u8) -> Self {
+        let mut cell_iter = cell_iter.into_iter();
+        let mut key = TreeKey::default();
+        while let Some(child_idx) = cell_iter.next() {
+            key.push(child_idx);
+        }
+        key.set_corner(corner);
+
+        key
+    }
+
+    pub fn corner_keys(&self) -> [TreeKey; 8] {
+        let mut corners = [*self; 8];
+        corners.iter_mut().enumerate().for_each(|(idx, corner)| {
+            corner.set_corner(idx as u8);
+        });
+        corners
     }
 
     fn _sanity_check(&self) -> bool {
@@ -119,6 +140,20 @@ impl TreeKey {
             .store(index);
     }
 
+    pub fn set_corner(&mut self, corner_idx: u8) {
+        assert!(corner_idx < 8);
+
+        self.0.view_bits_mut::<LocalBits>()
+            [61..64]
+            .store(corner_idx);
+    }
+
+    pub fn corner(&self) -> u8 {
+        self.0.view_bits::<LocalBits>()
+            [61..64]
+            .load()
+    }
+
     #[inline(always)]
     pub fn at_max_depth(&self) -> bool {
         self.depth() == 19
@@ -145,16 +180,7 @@ impl TreeKey {
 }
 
 #[test]
-fn tree_key_from_u64() {
-    assert!(TreeKey::from_u64(0).is_some());
-
-    // Invalid: Funny bits set
-    assert!(TreeKey::from_u64(0b010_11_000000000000000000000000000000000000000000_001_101_100_000_00100).is_none());
-    // Invalid: Too many cell indices
-    assert!(TreeKey::from_u64(0b010_00000000000000000000000000000000000000000_111_001_101_100_000_00100).is_none());
-    // Invalid: Depth > 19
-    assert!(TreeKey::from_u64(0b010_00000000000000000000000000000000000000000000_001_101_100_000_10100).is_none());
-
+fn tree_key_modify_test() {
     let mut key = TreeKey::from_u64(0b010_00000000000000000000000000000000000000000000_111_111_111_111_00100).expect("Valid TreeKey rejected?");
     key.set_depth(1);
     println!("Key: {:b}", key.0);
@@ -169,4 +195,27 @@ fn tree_key_from_u64() {
     println!("Key: {:b}", key.0);
     assert!(key._sanity_check());
     assert_eq!(key.get_index(1), 7);
+}
+
+#[test]
+fn tree_key_default() {
+    assert!(TreeKey::default()._sanity_check());
+}
+
+#[test]
+fn tree_key_funny_bits() {
+    // Invalid: Funny bits set
+    assert!(TreeKey::from_u64(0b010_11_000000000000000000000000000000000000000000_001_101_100_000_00100).is_none());
+}
+
+#[test]
+fn tree_key_overflow() {
+    // Invalid: Too many cell indices
+    assert!(TreeKey::from_u64(0b010_00000000000000000000000000000000000000000_111_001_101_100_000_00100).is_none());
+}
+
+#[test]
+fn tree_key_max_depth() {
+    // Invalid: Depth > 19
+    assert!(TreeKey::from_u64(0b010_00000000000000000000000000000000000000000000_001_101_100_000_10100).is_none());
 }
