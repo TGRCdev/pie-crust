@@ -11,13 +11,19 @@ pub struct LinearOctree {
 impl LinearOctree {
     pub fn new() -> Self {
         let mut buf = BTreeMap::new();
-        let root_keys = TreeKey::default().corner_keys();
+        let root_keys = TreeKeyBuilder::default().corner_keys();
         root_keys.into_iter().for_each(|key| {
-            assert!(buf.insert(key, -1.0).is_none());
+            assert!(buf.insert(key.key(), -1.0).is_none());
         });
 
         Self {
             buf
         }
     }
+}
+
+#[test]
+fn linear_octree_test() {
+    let tree = LinearOctree::new();
+    println!("{tree:#?}");
 }

@@ -30,14 +30,17 @@ use glam::Vec3;
 /// the final cell to access.
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TreeKey {
+pub struct TreeKey(u64);
+
+#[derive(Debug, Clone, Copy)]
+pub struct TreeKeyBuilder {
     key: u64,
     // When calculating a cell's corner keys, depth is used
     // to set all cell indices past depth to the corner index
     depth: u8,
 }
 
-impl Default for TreeKey {
+impl Default for TreeKeyBuilder {
     fn default() -> Self {
         Self {
             key: 0,
@@ -46,10 +49,10 @@ impl Default for TreeKey {
     }
 }
 
-impl TreeKey {
+impl TreeKeyBuilder {
     pub fn from_iter<I: IntoIterator<Item = u8>>(cell_iter: I, corner: u8) -> Self {
         let mut cell_iter = cell_iter.into_iter();
-        let mut key = TreeKey::default();
+        let mut key = TreeKeyBuilder::default();
         while let Some(child_idx) = cell_iter.next() {
             key.push(child_idx);
         }
@@ -58,7 +61,7 @@ impl TreeKey {
         key
     }
 
-    pub fn corner_keys(&self) -> [TreeKey; 8] {
+    pub fn corner_keys(&self) -> [TreeKeyBuilder; 8] {
         let mut corners = [*self; 8];
         corners.iter_mut().enumerate().for_each(|(idx, corner)| {
             corner.set_corner(idx as u8);
@@ -87,6 +90,10 @@ impl TreeKey {
             start,
             size: Vec3::splat(scale),
         }
+    }
+
+    pub fn key(self) -> TreeKey {
+        TreeKey(self.key)
     }
 
     fn _sanity_check(&self) {
@@ -212,7 +219,7 @@ fn tree_key_modify_test() {
         }}
     }
 
-    let mut key = TreeKey::from_iter([7,7,7,7,0], 2);
+    let mut key = TreeKeyBuilder::from_iter([7,7,7,7,0], 2);
     key._sanity_check();
     assert_eq!(key.depth(), 5);
     key_eq!(key.key, 0b010_0_010010010010010010010010010010010010010010010_000_111_111_111_111);
@@ -249,5 +256,5 @@ fn tree_key_modify_test() {
 
 #[test]
 fn tree_key_default() {
-    TreeKey::default()._sanity_check();
+    TreeKeyBuilder::default()._sanity_check();
 }
