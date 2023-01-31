@@ -3,8 +3,11 @@ use std::{
 };
 use crate::{
     tool::{ Tool, Action, IntersectType::*, },
+    Mesh,
+    marching_cubes::march_cube,
     utils
 };
+use glam::Vec3;
 
 mod octant_key;
 pub use octant_key::*;
@@ -90,7 +93,6 @@ impl OctantMap {
         // This implementation is to compare performance
         // vs. NaiveOctree
         fn apply_tool_at_octant<T: Tool + ?Sized>(this: &mut OctantMap, tool: &T, action: Action, max_depth: u8, octant: OctantKey) {
-            let depth = octant.depth();
             let aabb = octant.aabb();
             let scale = octant.scale();
             
@@ -136,6 +138,24 @@ impl OctantMap {
 
         apply_tool_at_octant(self, tool, action, max_depth, OctantKey::default());
     }
+
+    fn generate_mesh(&self, max_depth: u8) -> Mesh {
+        let vertices: Vec<Vec3> = self.leaves.iter().filter_map(|octant| {
+            if octant.depth() == max_depth || (octant.depth() < max_depth && self.leaves.contains(octant)) {
+                let aabb = octant.aabb();
+                let corners = aabb.calculate_corners();
+                let values = self.octants.get(octant).unwrap();
+                return Some(march_cube(&corners, values));
+            }
+            None
+        }).flatten().collect();
+
+        Mesh {
+            vertices,
+            indices: None,
+            normals: None,
+        }
+    }
 }
 
 #[test]
@@ -143,13 +163,16 @@ impl OctantMap {
 fn octant_map_test() {
     use glam::Vec3;
     use crate::tool::{ Sphere, Action };
+    use utils::time_test;
+
     let mut map = OctantMap::new();
     let tool = Sphere::new(Vec3::ZERO, 0.3291);
-    map.apply_tool(&tool, Action::Place, 3);
+    time_test!(map.apply_tool(&tool, Action::Place, 8), "OctantMap Apply Tool");
 
     for leaf in map.leaves.iter().cloned() {
         assert!(!map.has_children(leaf))
     }
 
-    println!("{map:?}");
+    let mesh = time_test!(map.generate_mesh(255), "OctantMap Mesh Generate");
+    mesh.write_obj_to_file(&"octant_map.obj");
 }
