@@ -200,8 +200,8 @@ impl NaiveOctree {
 #[test]
 #[ignore]
 fn terrain_test() {
-    use std::time::Instant;
     use crate::tool::Sphere;
+    use utils::time_test;
 
     let mut terrain = NaiveOctree::new(100.0);
     let mut tool = Sphere::new(
@@ -209,20 +209,14 @@ fn terrain_test() {
         30.0,
     );
     
-    let start = Instant::now();
-    terrain.apply_tool(&tool, Action::Place, 8);
-    let duration = Instant::now() - start;
-    println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
-
+    time_test!(terrain.apply_tool(&tool, Action::Place, 8), "NaiveOctree Apply Tool");
+    
     tool.radius = 20.0;
     tool.origin.y = 70.0;
-    terrain.apply_tool(&tool, Action::Remove, 8);
+    time_test!(terrain.apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
 
-    let start = Instant::now();
-    let mut mesh = terrain.generate_mesh(255);
-    let duration = Instant::now() - start;
-    println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
-
+    let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate Mesh");
+    
     mesh.write_obj_to_file(&"naive_octree.obj");
 }
 
