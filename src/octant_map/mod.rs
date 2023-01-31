@@ -139,12 +139,12 @@ impl OctantMap {
         apply_tool_at_octant(self, tool, action, max_depth, OctantKey::default());
     }
 
-    fn generate_mesh(&self, max_depth: u8) -> Mesh {
-        let vertices: Vec<Vec3> = self.leaves.iter().filter_map(|octant| {
+    pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
+        let vertices: Vec<Vec3> = self.octants.iter()
+            .filter_map(|(octant, values)| {
             if octant.depth() == max_depth || (octant.depth() < max_depth && self.leaves.contains(octant)) {
                 let aabb = octant.aabb();
                 let corners = aabb.calculate_corners();
-                let values = self.octants.get(octant).unwrap();
                 return Some(march_cube(&corners, values));
             }
             None
