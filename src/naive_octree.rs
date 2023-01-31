@@ -3,7 +3,7 @@ use crate::{
     utils,
 };
 use glam::Vec3;
-use crate::Mesh;
+use crate::UnindexedMesh;
 
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
@@ -120,7 +120,7 @@ impl NaiveOctreeCell {
         }
     }
 
-    pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
+    pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         use crate::marching_cubes::march_cube;
 
         if self.depth < max_depth {
@@ -128,22 +128,22 @@ impl NaiveOctreeCell {
                 let child_aabbs = cell_aabb.octree_subdivide();
                 children.iter()
                 .zip(child_aabbs.into_iter())
-                .for_each(|(child, aabb)| child.generate_mesh(vertices, max_depth, aabb));
+                .for_each(|(child, aabb)| child.generate_mesh(faces, max_depth, aabb));
                 return;
             }
         }
 
         let corners = cell_aabb.calculate_corners();
-        vertices.extend(march_cube(&corners, &self.values));
+        faces.extend(march_cube(&corners, &self.values));
     }
 
-    pub fn generate_octree_frame_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
+    pub fn generate_octree_frame_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         use utils::{ line_vertices, LineDir };
         
         if let Some(children) = self.children.as_ref() {
             let child_aabbs = cell_aabb.octree_subdivide();
             children.iter().zip(child_aabbs.into_iter()).for_each(|(child, aabb)| {
-                child.generate_octree_frame_mesh(vertices, max_depth, aabb);
+                child.generate_octree_frame_mesh(faces, max_depth, aabb);
             })
         }
         else {
@@ -151,9 +151,9 @@ impl NaiveOctreeCell {
             let cube_corners = cell_aabb.calculate_corners();
             let cell_size = cell_aabb.size;
             let line_scale = cube_scale * 0.01;
-            vertices.extend(line_vertices(cube_corners[0], cell_size.x, line_scale, LineDir::Right));
-            vertices.extend(line_vertices(cube_corners[0], cell_size.y, line_scale, LineDir::Up));
-            vertices.extend(line_vertices(cube_corners[0], cell_size.z, line_scale, LineDir::Forward));
+            faces.extend(line_vertices(cube_corners[0], cell_size.x, line_scale, LineDir::Right));
+            faces.extend(line_vertices(cube_corners[0], cell_size.y, line_scale, LineDir::Up));
+            faces.extend(line_vertices(cube_corners[0], cell_size.z, line_scale, LineDir::Forward));
         }
     }
 }
@@ -176,22 +176,20 @@ impl NaiveOctree {
         self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, max_depth);
     }
 
-    pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
-        let mut verts = Vec::new();
-        self.root.generate_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
-        return Mesh {
-            vertices: verts,
-            indices: None,
+    pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let mut faces = Vec::new();
+        self.root.generate_mesh(&mut faces, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        return UnindexedMesh {
+            faces,
             normals: None,
         }
     }
 
-    pub fn generate_octree_frame_mesh(&self, max_depth: u8) -> Mesh {
-        let mut verts = Vec::new();
-        self.root.generate_octree_frame_mesh(&mut verts, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
-        return Mesh {
-            vertices: verts,
-            indices: None,
+    pub fn generate_octree_frame_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let mut faces = Vec::new();
+        self.root.generate_octree_frame_mesh(&mut faces, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        return UnindexedMesh {
+            faces,
             normals: None,
         }
     }
@@ -215,9 +213,9 @@ fn terrain_test() {
     tool.origin.y = 70.0;
     time_test!(terrain.apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
 
-    let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate Mesh");
+    let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
     
-    mesh.write_obj_to_file(&"naive_octree.obj");
+    time_test!(mesh.write_obj_to_file(&"naive_octree.obj"), "NaiveOctree Mesh To File");
 }
 
 #[test]
@@ -232,12 +230,11 @@ fn cell_mesh_test() {
 
     cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0);
 
-    let mut verts = Vec::new();
-    cell.generate_mesh(&mut verts, 0, AABB::ONE_CUBIC_METER);
+    let mut faces = Vec::new();
+    cell.generate_mesh(&mut faces, 0, AABB::ONE_CUBIC_METER);
 
-    let mesh = Mesh {
-        vertices: verts,
-        indices: None,
+    let mesh = UnindexedMesh {
+        faces,
         normals: None,
     };
     mesh.write_obj_to_file(&"cell_mesh_test.obj");

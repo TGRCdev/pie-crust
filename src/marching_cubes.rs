@@ -323,7 +323,7 @@ pub fn vert_interp(point1: (Vec3, f32), point2: (Vec3, f32)) -> Vec3
     return Lerp::lerp(point1.0, point2.0, t);
 }
 
-pub fn march_cube(corners: &[Vec3; 8], values: &[f32; 8]) -> ArrayVec<Vec3, 15> {
+pub fn march_cube(corners: &[Vec3; 8], values: &[f32; 8]) -> ArrayVec<[Vec3; 3], 5> {
 	let mut cubeindex = 0;
         if values[0] > 0.0 { cubeindex |= 1;   }
         if values[1] > 0.0 { cubeindex |= 2;   }
@@ -341,7 +341,7 @@ pub fn march_cube(corners: &[Vec3; 8], values: &[f32; 8]) -> ArrayVec<Vec3, 15> 
             )
         };
 
-		let mut vertices = ArrayVec::new();
+		let mut faces = ArrayVec::new();
 
         if EDGE_TABLE[cubeindex] != 0 {
             let mut edge_verts = [None; 12];
@@ -361,10 +361,14 @@ pub fn march_cube(corners: &[Vec3; 8], values: &[f32; 8]) -> ArrayVec<Vec3, 15> 
             if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
             if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
 
-            TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
-                vertices.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
+            TRI_TABLE[cubeindex].chunks_exact(3).for_each(|tri_idx| {
+                faces.push([
+					edge_verts[tri_idx[0] as usize].expect("Tried to use invalid edge vertex!"),
+					edge_verts[tri_idx[1] as usize].expect("Tried to use invalid edge vertex!"),
+					edge_verts[tri_idx[2] as usize].expect("Tried to use invalid edge vertex!"),
+				]);
             })
 		};
 
-		vertices
+		faces
 }

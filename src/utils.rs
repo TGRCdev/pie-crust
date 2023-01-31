@@ -184,7 +184,7 @@ pub enum LineDir {
         Backward,
 }
 
-pub fn line_vertices(pos: Vec3, length: f32, scale: f32, line_dir: LineDir) -> [Vec3; 36] {
+pub fn line_vertices(pos: Vec3, length: f32, scale: f32, line_dir: LineDir) -> [[Vec3; 3]; 12] {
         const CUBE_INDICES: [usize; 36] = [
                 // Top face
                 2,6,7,
@@ -218,9 +218,9 @@ pub fn line_vertices(pos: Vec3, length: f32, scale: f32, line_dir: LineDir) -> [
         }
         cube_verts.iter_mut().for_each(|vert| *vert += pos);
 
-        let mut verts: ArrayVec<Vec3, 36> = ArrayVec::new();
+        let mut verts: ArrayVec<[Vec3; 3], 12> = ArrayVec::new();
 
-        CUBE_INDICES.into_iter().for_each(|idx| verts.push(cube_verts[idx]));
+        CUBE_INDICES.chunks_exact(3).for_each(|idx| verts.push([cube_verts[idx[0]], cube_verts[idx[1]], cube_verts[idx[2]]]));
 
         return verts.into_inner().unwrap();
 }

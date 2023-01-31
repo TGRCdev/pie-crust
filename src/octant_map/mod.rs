@@ -1,7 +1,7 @@
 use ahash::{ AHashMap, AHashSet };
 use crate::{
     tool::{ Tool, Action, IntersectType::*, },
-    Mesh,
+    UnindexedMesh,
     marching_cubes::march_cube,
     utils
 };
@@ -197,8 +197,8 @@ impl OctantMap {
         }
     }
 
-    pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
-        let vertices: Vec<Vec3> = self.octants.iter()
+    pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let faces: Vec<[Vec3; 3]> = self.octants.iter()
             .filter_map(|(octant, values)| {
                 if octant.depth() == max_depth || (octant.depth() < max_depth && self.leaves.contains(octant)) {
                     let aabb = octant.aabb();
@@ -208,9 +208,8 @@ impl OctantMap {
                 None
             }).flatten().collect();
 
-        Mesh {
-            vertices,
-            indices: None,
+        UnindexedMesh {
+            faces,
             normals: None,
         }
     }
