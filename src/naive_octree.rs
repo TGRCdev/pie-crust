@@ -29,7 +29,7 @@ impl NaiveOctreeCell {
         }
 
         // Subdivide 8 points into 8 cells
-        let points = utils::subdivide_cell(self.values);
+        let points = utils::subdivide_cell(&self.values);
 
         // Create new cells
         // We have constructed all the corners needed for our 8 new cells.
@@ -121,7 +121,7 @@ impl NaiveOctreeCell {
     }
 
     pub fn generate_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
-        use crate::marching_cubes::{ EDGE_TABLE, TRI_TABLE, vert_interp };
+        use crate::marching_cubes::march_cube;
 
         if self.depth < max_depth {
             if let Some(children) = self.children.as_ref() {
@@ -133,46 +133,8 @@ impl NaiveOctreeCell {
             }
         }
 
-        let mut cubeindex = 0;
-        if self.values[0] > 0.0 { cubeindex |= 1;   }
-        if self.values[1] > 0.0 { cubeindex |= 2;   }
-        if self.values[2] > 0.0 { cubeindex |= 4;   }
-        if self.values[3] > 0.0 { cubeindex |= 8;   }
-        if self.values[4] > 0.0 { cubeindex |= 16;  }
-        if self.values[5] > 0.0 { cubeindex |= 32;  }
-        if self.values[6] > 0.0 { cubeindex |= 64;  }
-        if self.values[7] > 0.0 { cubeindex |= 128; }
-
         let corners = cell_aabb.calculate_corners();
-        let interp = |index1, index2| -> Vec3 {
-            vert_interp(
-                (corners[index1], self.values[index1]),
-                (corners[index2], self.values[index2])
-            )
-        };
-
-        if EDGE_TABLE[cubeindex] != 0 {
-            let mut edge_verts = [None; 12];
-
-            if (EDGE_TABLE[cubeindex] & 1   ) != 0 { edge_verts[0 ] = Some(interp(0, 1)) }
-            if (EDGE_TABLE[cubeindex] & 2   ) != 0 { edge_verts[1 ] = Some(interp(0, 4)) }
-            if (EDGE_TABLE[cubeindex] & 4   ) != 0 { edge_verts[2 ] = Some(interp(4, 5)) }
-            if (EDGE_TABLE[cubeindex] & 8   ) != 0 { edge_verts[3 ] = Some(interp(5, 1)) }
-
-            if (EDGE_TABLE[cubeindex] & 16  ) != 0 { edge_verts[4 ] = Some(interp(2, 3)) }
-            if (EDGE_TABLE[cubeindex] & 32  ) != 0 { edge_verts[5 ] = Some(interp(2, 6)) }
-            if (EDGE_TABLE[cubeindex] & 64  ) != 0 { edge_verts[6 ] = Some(interp(6, 7)) }
-            if (EDGE_TABLE[cubeindex] & 128 ) != 0 { edge_verts[7 ] = Some(interp(7, 3)) }
-
-            if (EDGE_TABLE[cubeindex] & 256 ) != 0 { edge_verts[8 ] = Some(interp(0, 2)) }
-            if (EDGE_TABLE[cubeindex] & 512 ) != 0 { edge_verts[9 ] = Some(interp(4, 6)) }
-            if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
-            if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
-
-            TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
-                vertices.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
-            });
-        }
+        vertices.extend(march_cube(&corners, &self.values));
     }
 
     pub fn generate_octree_frame_mesh(&self, vertices: &mut Vec<Vec3>, max_depth: u8, cell_aabb: AABB) {
@@ -238,8 +200,8 @@ impl NaiveOctree {
 #[test]
 #[ignore]
 fn terrain_test() {
-    use std::time::Instant;
     use crate::tool::Sphere;
+    use utils::time_test;
 
     let mut terrain = NaiveOctree::new(100.0);
     let mut tool = Sphere::new(
@@ -247,20 +209,14 @@ fn terrain_test() {
         30.0,
     );
     
-    let start = Instant::now();
-    terrain.apply_tool(&tool, Action::Place, 8);
-    let duration = Instant::now() - start;
-    println!("Terrain Tool Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
-
+    time_test!(terrain.apply_tool(&tool, Action::Place, 8), "NaiveOctree Apply Tool");
+    
     tool.radius = 20.0;
     tool.origin.y = 70.0;
-    terrain.apply_tool(&tool, Action::Remove, 8);
+    time_test!(terrain.apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
 
-    let start = Instant::now();
-    let mut mesh = terrain.generate_mesh(255);
-    let duration = Instant::now() - start;
-    println!("Terrain Mesh Duration: {} micros ({} calls per second)", duration.as_micros(), 1.0f64 / duration.as_secs_f64());
-
+    let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate Mesh");
+    
     mesh.write_obj_to_file(&"naive_octree.obj");
 }
 

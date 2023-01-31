@@ -1,5 +1,6 @@
 use glam::{ Vec3, vec3 };
 use arrayvec::ArrayVec;
+use crate::CUBE_CORNERS;
 
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct AABB {
@@ -50,7 +51,7 @@ impl AABB {
 
     pub fn calculate_corners(&self) -> [Vec3; 8] {
         assert!(self.size.is_negative_bitmask() == 0);
-        let corners = crate::CUBE_CORNERS.map(|offset| {
+        let corners = CUBE_CORNERS.map(|offset| {
             self.start + (self.size * offset)
         });
 
@@ -140,8 +141,8 @@ impl AABB {
         let half_size = self.size / 2.0;
         let mut cells: ArrayVec<AABB, 8> = ArrayVec::new();
         
-        crate::CUBE_CORNERS.into_iter().for_each(|idx| {
-            let start = self.start + (half_size * idx);
+        CUBE_CORNERS.into_iter().for_each(|point| {
+            let start = self.start + (half_size * point);
             cells.push(
         AABB {
                     start,
@@ -151,6 +152,17 @@ impl AABB {
         });
         assert!(cells.windows(2).all(|a| {a[0].size == a[1].size}));
         cells.into_inner().unwrap()
+    }
+
+    pub fn octree_child(&self, index: u8) -> AABB {
+        assert!(index < 8);
+        let half_size = self.size / 2.0;
+        
+        let corner = CUBE_CORNERS[index as usize];
+        AABB {
+            start: self.start + (half_size * corner),
+            size: half_size,
+        }
     }
 }
 

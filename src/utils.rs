@@ -47,7 +47,7 @@ use arrayvec::ArrayVec;
 /// Note: Gap between cubes is exaggerated. In practice, 
 /// adjacent points are the same.
 ///```
-pub fn subdivide_cell(cell: [f32; 8]) -> [[f32; 8]; 8] {
+pub fn subdivide_cell(cell: &[f32; 8]) -> [[f32; 8]; 8] {
         // Construct 19 new points, for a total
         // of 27 points
         // 
@@ -224,3 +224,18 @@ pub fn line_vertices(pos: Vec3, length: f32, scale: f32, line_dir: LineDir) -> [
 
         return verts.into_inner().unwrap();
 }
+
+#[allow(unused_macros)]
+macro_rules! time_test {
+        ($func:expr, $label:literal) => {{
+                use std::time::Instant;
+                let start = Instant::now();
+                let result = $func;
+                let end = Instant::now();
+                let dur = end - start;
+                println!(concat!($label, " time test: {} micros ({} millis) - ~{:3} calls per second"), dur.as_micros(), dur.as_millis(), 1.0 / dur.as_secs_f64());
+                result
+        }}
+}
+#[allow(unused_imports)]
+pub(crate) use time_test;
