@@ -47,7 +47,7 @@ use arrayvec::ArrayVec;
 /// Note: Gap between cubes is exaggerated. In practice, 
 /// adjacent points are the same.
 ///```
-pub fn subdivide_cell(cell: [f32; 8]) -> [[f32; 8]; 8] {
+pub fn subdivide_cell(cell: &[f32; 8]) -> [[f32; 8]; 8] {
         // Construct 19 new points, for a total
         // of 27 points
         // 
