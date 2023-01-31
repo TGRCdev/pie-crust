@@ -1,5 +1,6 @@
 use glam::Vec3;
 use lerp::Lerp;
+use arrayvec::ArrayVec;
 
 pub const EDGE_TABLE: [u16; 256] = [
 	0x0  , 0x103, 0x809, 0x90a, 0x130, 0x33 , 0x939, 0x83a, 
@@ -320,4 +321,50 @@ pub fn vert_interp(point1: (Vec3, f32), point2: (Vec3, f32)) -> Vec3
 
     let t = (-point1.1 / (point2.1 - point1.1)).clamp(0.0,1.0);
     return Lerp::lerp(point1.0, point2.0, t);
+}
+
+pub fn march_cube(corners: &[Vec3; 8], values: &[f32; 8]) -> ArrayVec<Vec3, 15> {
+	let mut cubeindex = 0;
+        if values[0] > 0.0 { cubeindex |= 1;   }
+        if values[1] > 0.0 { cubeindex |= 2;   }
+        if values[2] > 0.0 { cubeindex |= 4;   }
+        if values[3] > 0.0 { cubeindex |= 8;   }
+        if values[4] > 0.0 { cubeindex |= 16;  }
+        if values[5] > 0.0 { cubeindex |= 32;  }
+        if values[6] > 0.0 { cubeindex |= 64;  }
+        if values[7] > 0.0 { cubeindex |= 128; }
+
+        let interp = |index1, index2| -> Vec3 {
+            vert_interp(
+                (corners[index1], values[index1]),
+                (corners[index2], values[index2])
+            )
+        };
+
+		let mut vertices = ArrayVec::new();
+
+        if EDGE_TABLE[cubeindex] != 0 {
+            let mut edge_verts = [None; 12];
+
+            if (EDGE_TABLE[cubeindex] & 1   ) != 0 { edge_verts[0 ] = Some(interp(0, 1)) }
+            if (EDGE_TABLE[cubeindex] & 2   ) != 0 { edge_verts[1 ] = Some(interp(0, 4)) }
+            if (EDGE_TABLE[cubeindex] & 4   ) != 0 { edge_verts[2 ] = Some(interp(4, 5)) }
+            if (EDGE_TABLE[cubeindex] & 8   ) != 0 { edge_verts[3 ] = Some(interp(5, 1)) }
+
+            if (EDGE_TABLE[cubeindex] & 16  ) != 0 { edge_verts[4 ] = Some(interp(2, 3)) }
+            if (EDGE_TABLE[cubeindex] & 32  ) != 0 { edge_verts[5 ] = Some(interp(2, 6)) }
+            if (EDGE_TABLE[cubeindex] & 64  ) != 0 { edge_verts[6 ] = Some(interp(6, 7)) }
+            if (EDGE_TABLE[cubeindex] & 128 ) != 0 { edge_verts[7 ] = Some(interp(7, 3)) }
+
+            if (EDGE_TABLE[cubeindex] & 256 ) != 0 { edge_verts[8 ] = Some(interp(0, 2)) }
+            if (EDGE_TABLE[cubeindex] & 512 ) != 0 { edge_verts[9 ] = Some(interp(4, 6)) }
+            if (EDGE_TABLE[cubeindex] & 1024) != 0 { edge_verts[10] = Some(interp(5, 7)) }
+            if (EDGE_TABLE[cubeindex] & 2048) != 0 { edge_verts[11] = Some(interp(1, 3)) }
+
+            TRI_TABLE[cubeindex].into_iter().copied().for_each(|tri_idx| {
+                vertices.push(edge_verts[tri_idx as usize].expect("Tried to use invalid edge vertex!"));
+            })
+		};
+
+		vertices
 }
