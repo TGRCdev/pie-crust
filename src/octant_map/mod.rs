@@ -1,6 +1,4 @@
-use std::{
-    collections::{ BTreeMap, BTreeSet },
-};
+use ahash::{ AHashMap, AHashSet };
 use crate::{
     tool::{ Tool, Action, IntersectType::*, },
     Mesh,
@@ -14,8 +12,8 @@ pub use octant_key::*;
 
 #[derive(Debug)]
 pub struct OctantMap {
-    octants: BTreeMap<OctantKey, [f32; 8]>,
-    leaves: BTreeSet<OctantKey>,
+    octants: AHashMap<OctantKey, [f32; 8]>,
+    leaves: AHashSet<OctantKey>,
 }
 
 impl Default for OctantMap {
@@ -28,8 +26,8 @@ impl Default for OctantMap {
 impl OctantMap {
     pub fn new() -> Self {
         let root_key = OctantKey::default();
-        let mut octants = BTreeMap::new();
-        let mut leaves = BTreeSet::new();
+        let mut octants = AHashMap::new();
+        let mut leaves = AHashSet::new();
         octants.insert(root_key, [-1.0; 8]);
         leaves.insert(root_key);
 
@@ -61,6 +59,8 @@ impl OctantMap {
             .any(|child| self.has_children(child) || self.intersects_surface(child))
     }
 
+
+
     fn collapse_cell(&mut self, cell: OctantKey) {
         if !self.is_collapsible(cell) { return; }
 
@@ -74,11 +74,14 @@ impl OctantMap {
     }
 
     fn subdivide_cell(&mut self, cell: OctantKey) {
+        let values = self.octants.get(&cell).unwrap().clone();
+        self.subdivide_with_old_values(cell, &values);
+    }
+
+    fn subdivide_with_old_values(&mut self, cell: OctantKey, values: &[f32; 8]) {
         if cell.at_max_depth() || self.has_children(cell) { return; }
 
-        let cell_values = self.octants.get(&cell).unwrap();
-
-        let child_values = utils::subdivide_cell(cell_values);
+        let child_values = utils::subdivide_cell(values);
         cell.children().into_iter()
             .zip(child_values.into_iter())
             .for_each(|(child, values)| {
@@ -88,7 +91,7 @@ impl OctantMap {
         self.leaves.remove(&cell);
     }
 
-    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
+    pub fn apply_tool_recurse<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
         // Implementation 1: Recurse
         // This implementation is to compare performance
         // vs. NaiveOctree
@@ -139,16 +142,71 @@ impl OctantMap {
         apply_tool_at_octant(self, tool, action, max_depth, OctantKey::default());
     }
 
+    pub fn apply_tool_filter<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
+        // Implementation 2: Filter
+
+        fn apply_to_octant<T: Tool + ?Sized>(tool: &T, action: Action, max_depth: u8, octant: &OctantKey, values: &mut [f32; 8], leaves: &AHashSet<OctantKey>, subdivide: &mut Vec<(OctantKey, [f32; 8])>) {
+            let aabb = octant.aabb();
+            let scale = octant.scale();
+            
+            let mut newvals = values.clone();
+            newvals.iter_mut()
+                .zip(aabb.calculate_corners().into_iter())
+                .for_each(|(value, pos)| {
+                    action.apply_value(value, tool.value(pos, scale))
+                });
+            
+            // Whether or not the new values intersect the isosurface
+            let newvals_intersect = newvals.windows(2).any(|vals| vals[0].is_sign_negative() != vals[1].is_sign_negative());
+            
+            let tool_aabb = match action {
+                Action::Place => tool.tool_aabb(),
+                Action::Remove => tool.aoe_aabb(),
+            };
+
+            // Check if subdivision is needed
+            // (This must happen BEFORE modification to avoid bad data)
+            if !octant.at_max_depth() && octant.depth() < max_depth && leaves.contains(&octant) &&
+                (tool.is_convex() && (newvals_intersect || matches!(tool_aabb.intersect(aabb), ContainedBy))) ||
+                (tool.is_concave() && (newvals_intersect || !matches!(tool.aoe_aabb().intersect(aabb), DoesNotIntersect)))
+                {
+                    subdivide.push((*octant, values.clone()));
+            }
+
+            *values = newvals;
+
+            // TODO: Collapse check somehow
+        }
+
+        // Iterate through octants, filter by which are below max_depth, apply, and subdivide
+        let mut subdivide: Vec<(OctantKey, [f32; 8])> = Vec::new();
+        {
+            let leaves = &self.leaves;
+            let octants = &mut self.octants;
+            octants.iter_mut().filter(|(octant, _)| octant.depth() <= max_depth)
+                .for_each(|(octant, values)| apply_to_octant(tool, action, max_depth, octant, values, leaves, &mut subdivide));
+        }
+        
+        while !subdivide.is_empty() {
+            let (octant, values) = subdivide.pop().unwrap();
+            self.subdivide_with_old_values(octant, &values);
+            octant.children().into_iter().for_each(|child| {
+                let values = self.octants.get_mut(&child).unwrap();
+                apply_to_octant(tool, action, max_depth, &child, values, &self.leaves, &mut subdivide)
+            })
+        }
+    }
+
     pub fn generate_mesh(&self, max_depth: u8) -> Mesh {
         let vertices: Vec<Vec3> = self.octants.iter()
             .filter_map(|(octant, values)| {
-            if octant.depth() == max_depth || (octant.depth() < max_depth && self.leaves.contains(octant)) {
-                let aabb = octant.aabb();
-                let corners = aabb.calculate_corners();
-                return Some(march_cube(&corners, values));
-            }
-            None
-        }).flatten().collect();
+                if octant.depth() == max_depth || (octant.depth() < max_depth && self.leaves.contains(octant)) {
+                    let aabb = octant.aabb();
+                    let corners = aabb.calculate_corners();
+                    return Some(march_cube(&corners, values));
+                }
+                None
+            }).flatten().collect();
 
         Mesh {
             vertices,
@@ -167,12 +225,12 @@ fn octant_map_test() {
 
     let mut map = OctantMap::new();
     let tool = Sphere::new(Vec3::ZERO, 0.3291);
-    time_test!(map.apply_tool(&tool, Action::Place, 8), "OctantMap Apply Tool");
+    time_test!(map.apply_tool_filter(&tool, Action::Place, 8), "OctantMap Apply Tool");
 
     for leaf in map.leaves.iter().cloned() {
         assert!(!map.has_children(leaf))
     }
 
-    let mesh = time_test!(map.generate_mesh(255), "OctantMap Mesh Generate");
+    let mesh = time_test!(map.generate_mesh(8), "OctantMap Mesh Generate");
     mesh.write_obj_to_file(&"octant_map.obj");
 }
