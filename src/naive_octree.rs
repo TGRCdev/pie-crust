@@ -213,9 +213,13 @@ fn terrain_test() {
     tool.origin.y = 70.0;
     time_test!(terrain.apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
 
-    let mut mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
+    let mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
+
+    time_test!(mesh.write_obj_to_file("naive_octree_unindexed.obj"), "NaiveOctree UnindexedMesh To File");
+
+    let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
     
-    time_test!(mesh.write_obj_to_file(&"naive_octree.obj"), "NaiveOctree Mesh To File");
+    time_test!(mesh.write_obj_to_file("naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
 }
 
 #[test]
@@ -237,5 +241,5 @@ fn cell_mesh_test() {
         faces,
         normals: None,
     };
-    mesh.write_obj_to_file(&"cell_mesh_test.obj");
+    mesh.write_obj_to_file("cell_mesh_test.obj");
 }
