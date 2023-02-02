@@ -8,16 +8,14 @@ use crate::UnindexedMesh;
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
     pub values: [f32; 8],
-    pub children: Option<Box<[NaiveOctreeCell; 8]>>,
-    depth: u8,
+    pub children: Option<Box<[NaiveOctreeCell; 8]>>
 }
 
 impl Default for NaiveOctreeCell {
     fn default() -> Self {
         Self {
             values: [-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0],
-            children: None,
-            depth: 0,
+            children: None
         }
     }
 }
@@ -37,7 +35,6 @@ impl NaiveOctreeCell {
                 NaiveOctreeCell {
                 values: points[cell],
                     children: None,
-                    depth: self.depth + 1,
                 }
         };
 
@@ -71,7 +68,7 @@ impl NaiveOctreeCell {
         self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum())
     }
 
-    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, max_depth: u8) {
+    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
         // Store the results of tool application
         //
         // We need to compute these before subdivision to decide if we need
@@ -94,7 +91,7 @@ impl NaiveOctreeCell {
         
         use IntersectType::*;
         // Check if subdivision is needed
-        if self.children.is_none() && self.depth < max_depth {
+        if self.children.is_none() && current_depth < max_depth {
             if (tool.is_convex() && (diff_signs || matches!(tool_aabb.intersect(cell_aabb), ContainedBy))) ||
                 (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
             {
@@ -111,7 +108,7 @@ impl NaiveOctreeCell {
             // Recursive apply to each child cell
             children.iter_mut()
                 .zip(child_aabbs.into_iter())
-                .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, max_depth));
+                .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, current_depth+1, max_depth));
             
             // Check if collapse is needed
             if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
@@ -120,15 +117,15 @@ impl NaiveOctreeCell {
         }
     }
 
-    pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
+    pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
         use crate::marching_cubes::march_cube;
 
-        if self.depth < max_depth {
+        if current_depth < max_depth {
             if let Some(children) = self.children.as_ref() {
                 let child_aabbs = cell_aabb.octree_subdivide();
                 children.iter()
                 .zip(child_aabbs.into_iter())
-                .for_each(|(child, aabb)| child.generate_mesh(faces, max_depth, aabb));
+                .for_each(|(child, aabb)| child.generate_mesh(faces, current_depth+1, max_depth, aabb));
                 return;
             }
         }
@@ -173,12 +170,12 @@ impl NaiveOctree {
     }
 
     pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
-        self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, max_depth);
+        self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
     }
 
     pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
         let mut faces = Vec::new();
-        self.root.generate_mesh(&mut faces, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        self.root.generate_mesh(&mut faces, 0, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
         return UnindexedMesh {
             faces,
             normals: None,
@@ -232,10 +229,10 @@ fn cell_mesh_test() {
         radius: 0.3,
     };
 
-    cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0);
+    cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0, 0);
 
     let mut faces = Vec::new();
-    cell.generate_mesh(&mut faces, 0, AABB::ONE_CUBIC_METER);
+    cell.generate_mesh(&mut faces, 0, 0, AABB::ONE_CUBIC_METER);
 
     let mesh = UnindexedMesh {
         faces,
