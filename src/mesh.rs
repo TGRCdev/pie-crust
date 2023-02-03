@@ -6,9 +6,10 @@ use std::{
     writeln,
 };
 use ahash::AHashMap;
-use rayon::prelude::*;
-use glam::vec3;
 use ordered_float::NotNan;
+
+//#[cfg(feature = "multi-thread")]
+//use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
 pub enum Normals {

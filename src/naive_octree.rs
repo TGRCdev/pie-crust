@@ -3,7 +3,12 @@ use crate::{
     utils,
 };
 use glam::Vec3;
-use crate::UnindexedMesh;
+use crate::{ UnindexedMesh, marching_cubes::march_cube };
+
+#[cfg(feature = "multi-thread")]
+use lockfree::stack::Stack;
+#[cfg(feature = "multi-thread")]
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
@@ -68,7 +73,9 @@ impl NaiveOctreeCell {
         self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum())
     }
 
-    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
+    /// Handles applying to the current Cell and determining if children need subdivision.
+    /// This is split from apply_tool and par_apply_tool to deduplicate code.
+    fn apply_tool_impl<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
         // Store the results of tool application
         //
         // We need to compute these before subdivision to decide if we need
@@ -102,6 +109,10 @@ impl NaiveOctreeCell {
         }
 
         self.values = newvals;
+    }
+
+    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
+        self.apply_tool_impl(tool, action, cell_aabb, current_depth, max_depth);
 
         if let Some(children) = self.children.as_mut() {
             let child_aabbs = cell_aabb.octree_subdivide();
@@ -117,9 +128,25 @@ impl NaiveOctreeCell {
         }
     }
 
-    pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
-        use crate::marching_cubes::march_cube;
+    #[cfg(feature = "multi-thread")]
+    fn par_apply_tool<T: Tool + Sync + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
+        self.apply_tool_impl(tool, action, cell_aabb, current_depth, max_depth);
 
+        if let Some(children) = self.children.as_mut() {
+            let child_aabbs = cell_aabb.octree_subdivide();
+            // Recursive apply to each child cell
+            children.par_iter_mut()
+                .zip(child_aabbs.into_par_iter())
+                .for_each(|(child, aabb)| child.par_apply_tool(tool, action, aabb, current_depth+1, max_depth));
+            
+            // Check if collapse is needed
+            if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
+                self.collapse_cell();
+            }
+        }
+    }
+
+    pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
         if current_depth < max_depth {
             if let Some(children) = self.children.as_ref() {
                 let child_aabbs = cell_aabb.octree_subdivide();
@@ -134,7 +161,28 @@ impl NaiveOctreeCell {
         faces.extend(march_cube(&corners, &self.values));
     }
 
-    pub fn generate_octree_frame_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
+    #[cfg(feature = "multi-thread")]
+    pub fn par_generate_mesh(&self, vertices: &Stack<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
+        use rayon::prelude::*;
+
+        if current_depth < max_depth {
+            if let Some(children) = self.children.as_ref() {
+                let child_aabbs = cell_aabb.octree_subdivide();
+                children.par_iter()
+                .zip(child_aabbs.into_par_iter())
+                .for_each(|(child, aabb)| {
+                    child.par_generate_mesh(vertices, current_depth, max_depth, aabb)
+                });
+                return;
+            }
+        }
+        
+        let tris = march_cube(&cell_aabb.calculate_corners(), &self.values);
+
+        vertices.extend(tris);
+    }
+
+    fn generate_octree_frame_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         use utils::{ line_vertices, LineDir };
         
         if let Some(children) = self.children.as_ref() {
@@ -173,11 +221,31 @@ impl NaiveOctree {
         self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
     }
 
+    #[cfg(feature = "multi-thread")]
+    pub fn par_apply_tool<T: Tool + ?Sized + Sync>(&mut self, tool: &T, action: Action, max_depth: u8) {
+        rayon::in_place_scope(|_| {
+            self.root.par_apply_tool(tool, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
+        });
+    }
+
     pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
         let mut faces = Vec::new();
         self.root.generate_mesh(&mut faces, 0, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
         return UnindexedMesh {
             faces,
+            normals: None,
+        }
+    }
+
+    #[cfg(feature = "multi-thread")]
+    pub fn par_generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
+        let faces = Stack::new();
+        rayon::in_place_scope(|_| {
+            self.root.par_generate_mesh(&faces, 0, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
+        });
+
+        UnindexedMesh {
+            faces: faces.collect(),
             normals: None,
         }
     }
@@ -217,6 +285,34 @@ fn terrain_test() {
     let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
     
     time_test!(mesh.write_obj_to_file("naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
+}
+
+#[test]
+#[ignore]
+#[cfg(feature = "multi-thread")]
+fn par_terrain_test() {
+    use crate::tool::Sphere;
+    use utils::time_test;
+
+    let mut terrain = NaiveOctree::new(100.0);
+    let mut tool = Sphere::new(
+        Vec3::splat(50.0),
+        30.0,
+    );
+    
+    time_test!(terrain.par_apply_tool(&tool, Action::Place, 8), "NaiveOctree Apply Tool");
+    
+    tool.radius = 20.0;
+    tool.origin.y = 70.0;
+    time_test!(terrain.par_apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
+
+    let mesh = time_test!(terrain.par_generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
+
+    time_test!(mesh.write_obj_to_file("par_naive_octree_unindexed.obj"), "NaiveOctree UnindexedMesh To File");
+
+    let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
+    
+    time_test!(mesh.write_obj_to_file("par_naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
 }
 
 #[test]
