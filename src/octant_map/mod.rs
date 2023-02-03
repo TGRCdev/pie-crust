@@ -217,19 +217,40 @@ impl OctantMap {
 
 #[test]
 #[ignore]
-fn octant_map_test() {
+fn octant_map_test_filter() {
     use glam::Vec3;
     use crate::tool::{ Sphere, Action };
     use utils::time_test;
 
     let mut map = OctantMap::new();
     let tool = Sphere::new(Vec3::ZERO, 0.3291);
-    time_test!(map.apply_tool_filter(&tool, Action::Place, 8), "OctantMap Apply Tool");
+    time_test!(map.apply_tool_filter(&tool, Action::Place, 8), "OctantMap Apply Tool (filter)");
 
     for leaf in map.leaves.iter().cloned() {
         assert!(!map.has_children(leaf))
     }
 
     let mesh = time_test!(map.generate_mesh(8), "OctantMap Mesh Generate");
-    mesh.write_obj_to_file(&"octant_map.obj");
+    let mesh = time_test!(mesh.index(), "OctantMap Mesh Index");
+    time_test!(mesh.write_obj_to_file(&"octant_map.obj"), "OctantMap Mesh Write To File");
+}
+
+#[test]
+#[ignore]
+fn octant_map_test_recurse() {
+    use glam::Vec3;
+    use crate::tool::{ Sphere, Action };
+    use utils::time_test;
+
+    let mut map = OctantMap::new();
+    let tool = Sphere::new(Vec3::ZERO, 0.3291);
+    time_test!(map.apply_tool_recurse(&tool, Action::Place, 8), "OctantMap Apply Tool (recurse)");
+
+    for leaf in map.leaves.iter().cloned() {
+        assert!(!map.has_children(leaf))
+    }
+
+    let mesh = time_test!(map.generate_mesh(8), "OctantMap Mesh Generate");
+    let mesh = time_test!(mesh.index(), "OctantMap Mesh Index");
+    time_test!(mesh.write_obj_to_file(&"octant_map.obj"), "OctantMap Mesh Write To File");
 }
