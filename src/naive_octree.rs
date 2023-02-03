@@ -75,7 +75,16 @@ impl NaiveOctreeCell {
 
     /// Handles applying to the current Cell and determining if children need subdivision.
     /// This is split from apply_tool and par_apply_tool to deduplicate code.
-    fn apply_tool_impl<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
+    fn apply_tool_impl<T: Tool + ?Sized>(
+        &mut self,
+        tool: &T,
+        tool_aabb: AABB,
+        aoe_aabb: AABB,
+        action: Action,
+        cell_aabb: AABB,
+        current_depth: u8,
+        max_depth: u8
+    ) {
         // Store the results of tool application
         //
         // We need to compute these before subdivision to decide if we need
@@ -91,16 +100,16 @@ impl NaiveOctreeCell {
         // TODO: Rewrite all these conditions for performance (if needed)
         let diff_signs = newvals.windows(2).any(|vals| vals[0].signum() != vals[1].signum());
 
-        let tool_aabb = match action {
-            Action::Remove => tool.aoe_aabb(),
-            Action::Place => tool.tool_aabb(),
+        let check_aabb = match action {
+            Action::Remove => aoe_aabb,
+            Action::Place => tool_aabb,
         };
         
         use IntersectType::*;
         // Check if subdivision is needed
         if self.children.is_none() && current_depth < max_depth {
-            if (tool.is_convex() && (diff_signs || matches!(tool_aabb.intersect(cell_aabb), ContainedBy))) ||
-                (tool.is_concave() && !matches!(tool.aoe_aabb().intersect(cell_aabb), DoesNotIntersect))
+            if (tool.is_convex() && (diff_signs || matches!(check_aabb.intersect(cell_aabb), ContainedBy))) ||
+                (tool.is_concave() && !matches!(aoe_aabb.intersect(cell_aabb), DoesNotIntersect))
             {
                 // Tool intersects but does not contain, the cell intersects the isosurface
                 // subdivide for more detail
@@ -111,15 +120,24 @@ impl NaiveOctreeCell {
         self.values = newvals;
     }
 
-    pub fn apply_tool<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
-        self.apply_tool_impl(tool, action, cell_aabb, current_depth, max_depth);
+    pub fn apply_tool<T: Tool + ?Sized>(
+        &mut self,
+        tool: &T,
+        tool_aabb: AABB,
+        aoe_aabb: AABB,
+        action: Action,
+        cell_aabb: AABB,
+        current_depth: u8,
+        max_depth: u8
+    ) {
+        self.apply_tool_impl(tool, tool_aabb, aoe_aabb, action, cell_aabb, current_depth, max_depth);
 
         if let Some(children) = self.children.as_mut() {
             let child_aabbs = cell_aabb.octree_subdivide();
             // Recursive apply to each child cell
             children.iter_mut()
                 .zip(child_aabbs.into_iter())
-                .for_each(|(child, aabb)| child.apply_tool(tool, action, aabb, current_depth+1, max_depth));
+                .for_each(|(child, aabb)| child.apply_tool(tool, tool_aabb, aoe_aabb, action, aabb, current_depth+1, max_depth));
             
             // Check if collapse is needed
             if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
@@ -129,15 +147,24 @@ impl NaiveOctreeCell {
     }
 
     #[cfg(feature = "multi-thread")]
-    fn par_apply_tool<T: Tool + Sync + ?Sized>(&mut self, tool: &T, action: Action, cell_aabb: AABB, current_depth: u8, max_depth: u8) {
-        self.apply_tool_impl(tool, action, cell_aabb, current_depth, max_depth);
+    pub fn par_apply_tool<T: Tool + Sync + ?Sized>(
+        &mut self,
+        tool: &T,
+        tool_aabb: AABB,
+        aoe_aabb: AABB,
+        action: Action,
+        cell_aabb: AABB,
+        current_depth: u8,
+        max_depth: u8
+    ) {
+        self.apply_tool_impl(tool, tool_aabb, aoe_aabb, action, cell_aabb, current_depth, max_depth);
 
         if let Some(children) = self.children.as_mut() {
             let child_aabbs = cell_aabb.octree_subdivide();
             // Recursive apply to each child cell
             children.par_iter_mut()
                 .zip(child_aabbs.into_par_iter())
-                .for_each(|(child, aabb)| child.par_apply_tool(tool, action, aabb, current_depth+1, max_depth));
+                .for_each(|(child, aabb)| child.par_apply_tool(tool, tool_aabb, aoe_aabb, action, aabb, current_depth+1, max_depth));
             
             // Check if collapse is needed
             if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
@@ -218,13 +245,51 @@ impl NaiveOctree {
     }
 
     pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
-        self.root.apply_tool(tool, action, AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
+        let mut tool_aabb = tool.tool_aabb();
+        let mut aoe_aabb = tool.aoe_aabb();
+
+        let terrain_aabb = AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) };
+        
+        // Intersect the tool AABBs to fit inside the terrain
+        match terrain_aabb.intersect(aoe_aabb) {
+            IntersectType::DoesNotIntersect => return,
+            IntersectType::Intersects(new_aabb) => aoe_aabb = new_aabb,
+            IntersectType::ContainedBy => aoe_aabb = terrain_aabb,
+            IntersectType::Contains => (),
+        }
+        match terrain_aabb.intersect(tool_aabb) {
+            IntersectType::DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            IntersectType::Intersects(new_aabb) => tool_aabb = new_aabb,
+            IntersectType::ContainedBy => tool_aabb = terrain_aabb,
+            IntersectType::Contains => (),
+        }
+
+        self.root.apply_tool(tool, tool_aabb, aoe_aabb, action, terrain_aabb, 0, max_depth);
     }
 
     #[cfg(feature = "multi-thread")]
     pub fn par_apply_tool<T: Tool + ?Sized + Sync>(&mut self, tool: &T, action: Action, max_depth: u8) {
+        let mut tool_aabb = tool.tool_aabb();
+        let mut aoe_aabb = tool.aoe_aabb();
+
+        let terrain_aabb = AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) };
+        
+        // Intersect the tool AABBs to fit inside the terrain
+        match terrain_aabb.intersect(aoe_aabb) {
+            IntersectType::DoesNotIntersect => return,
+            IntersectType::Intersects(new_aabb) => aoe_aabb = new_aabb,
+            IntersectType::ContainedBy => aoe_aabb = terrain_aabb,
+            IntersectType::Contains => (),
+        }
+        match terrain_aabb.intersect(tool_aabb) {
+            IntersectType::DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            IntersectType::Intersects(new_aabb) => tool_aabb = new_aabb,
+            IntersectType::ContainedBy => tool_aabb = terrain_aabb,
+            IntersectType::Contains => (),
+        }
+
         rayon::in_place_scope(|_| {
-            self.root.par_apply_tool(tool, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
+            self.root.par_apply_tool(tool, tool_aabb, aoe_aabb, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
         });
     }
 
@@ -289,6 +354,27 @@ fn terrain_test() {
 
 #[test]
 #[ignore]
+fn edge_tool_test() {
+    use crate::tool::Sphere;
+    use utils::time_test;
+    use glam::vec3;
+
+    let mut terrain = NaiveOctree::new(100.0);
+    let tool = Sphere::new(
+        vec3(0.0,50.0,50.0),
+        24.583,
+    );
+
+    time_test!(terrain.apply_tool(&tool, Action::Place, 8), "Edge Tool Place");
+
+    let mesh = time_test!(terrain.generate_mesh(255), "Edge Tool Generate Mesh");
+    let mesh = time_test!(mesh.index(), "Edge Tool Index Mesh");
+
+    mesh.write_obj_to_file("edge_tool.obj");
+}
+
+#[test]
+#[ignore]
 #[cfg(feature = "multi-thread")]
 fn par_terrain_test() {
     use crate::tool::Sphere;
@@ -325,7 +411,7 @@ fn cell_mesh_test() {
         radius: 0.3,
     };
 
-    cell.apply_tool(&tool, Action::Place, AABB::ONE_CUBIC_METER, 0, 0);
+    cell.apply_tool(&tool, tool.tool_aabb(), tool.aoe_aabb(), Action::Place, AABB::ONE_CUBIC_METER, 0, 0);
 
     let mut faces = Vec::new();
     cell.generate_mesh(&mut faces, 0, 0, AABB::ONE_CUBIC_METER);
