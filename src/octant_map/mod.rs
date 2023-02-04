@@ -1,6 +1,6 @@
 use ahash::{ AHashMap, AHashSet };
 use crate::{
-    tool::{ Tool, Action, IntersectType::*, },
+    tool::{ Tool, Action, IntersectType::*, AABB },
     UnindexedMesh,
     marching_cubes::march_cube,
     utils
@@ -95,7 +95,15 @@ impl OctantMap {
         // Implementation 1: Recurse
         // This implementation is to compare performance
         // vs. NaiveOctree
-        fn apply_tool_at_octant<T: Tool + ?Sized>(this: &mut OctantMap, tool: &T, action: Action, max_depth: u8, octant: OctantKey) {
+        fn apply_tool_at_octant<T: Tool + ?Sized>(
+            this: &mut OctantMap,
+            tool: &T,
+            tool_aabb: AABB,
+            aoe_aabb: AABB,
+            action: Action,
+            max_depth: u8,
+            octant: OctantKey,
+        ) {
             let aabb = octant.aabb();
             let scale = octant.scale();
             
@@ -109,16 +117,16 @@ impl OctantMap {
             // Whether or not the new values intersect the isosurface
             let newvals_intersect = newvals.windows(2).any(|vals| vals[0].is_sign_negative() != vals[1].is_sign_negative());
             
-            let tool_aabb = match action {
-                Action::Place => tool.tool_aabb(),
-                Action::Remove => tool.aoe_aabb(),
+            let check_aabb = match action {
+                Action::Place => tool_aabb,
+                Action::Remove => aoe_aabb,
             };
 
             // Check if subdivision is needed
             // (This must happen BEFORE modification to avoid bad data)
             if !octant.at_max_depth() && octant.depth() < max_depth && !this.has_children(octant) &&
-                (tool.is_convex() && (newvals_intersect || matches!(tool_aabb.intersect(aabb), ContainedBy))) ||
-                (tool.is_concave() && (newvals_intersect || !matches!(tool.aoe_aabb().intersect(aabb), DoesNotIntersect)))
+                (tool.is_convex() && (newvals_intersect || matches!(check_aabb.intersect(aabb), ContainedBy))) ||
+                (tool.is_concave() && (newvals_intersect || !matches!(aoe_aabb.intersect(aabb), DoesNotIntersect)))
                 {
                     this.subdivide_cell(octant)
             }
@@ -130,7 +138,7 @@ impl OctantMap {
                 // Recursive apply to each child cell
                 // If children already exist, they still get updated regardless
                 // of max_depth
-                children.into_iter().for_each(|child| apply_tool_at_octant(this, tool, action, max_depth, child));
+                children.into_iter().for_each(|child| apply_tool_at_octant(this, tool, tool_aabb, aoe_aabb, action, max_depth, child));
 
                 // Check if collapse needed
                 if this.is_collapsible(octant) {
@@ -139,13 +147,41 @@ impl OctantMap {
             }
         }
 
-        apply_tool_at_octant(self, tool, action, max_depth, OctantKey::default());
+        let root_aabb = OctantKey::default().aabb();
+        let mut tool_aabb = tool.tool_aabb();
+        let mut aoe_aabb = tool.aoe_aabb();
+        
+        // Try to intersect the tool AABBs to fit inside the terrain
+        match root_aabb.intersect(tool_aabb) {
+            DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            Intersects(new_aabb) => tool_aabb = new_aabb,
+            ContainedBy => tool_aabb = root_aabb,
+            Contains => (),
+        }
+        match root_aabb.intersect(aoe_aabb) {
+            DoesNotIntersect => return,
+            Intersects(new_aabb) => aoe_aabb = new_aabb,
+            ContainedBy => aoe_aabb = root_aabb,
+            Contains => (),
+        }
+
+        apply_tool_at_octant(self, tool, tool_aabb, aoe_aabb, action, max_depth, OctantKey::default());
     }
 
     pub fn apply_tool_filter<T: Tool + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
         // Implementation 2: Filter
 
-        fn apply_to_octant<T: Tool + ?Sized>(tool: &T, action: Action, max_depth: u8, octant: &OctantKey, values: &mut [f32; 8], leaves: &AHashSet<OctantKey>, subdivide: &mut Vec<(OctantKey, [f32; 8])>) {
+        fn apply_to_octant<T: Tool + ?Sized>(
+            tool: &T,
+            tool_aabb: AABB,
+            aoe_aabb: AABB,
+            action: Action,
+            max_depth: u8, 
+            octant: &OctantKey,
+            values: &mut [f32; 8],
+            leaves: &AHashSet<OctantKey>,
+            subdivide: &mut Vec<(OctantKey, [f32; 8])>
+        ) {
             let aabb = octant.aabb();
             let scale = octant.scale();
             
@@ -159,16 +195,16 @@ impl OctantMap {
             // Whether or not the new values intersect the isosurface
             let newvals_intersect = newvals.windows(2).any(|vals| vals[0].is_sign_negative() != vals[1].is_sign_negative());
             
-            let tool_aabb = match action {
-                Action::Place => tool.tool_aabb(),
-                Action::Remove => tool.aoe_aabb(),
+            let check_aabb = match action {
+                Action::Place => tool_aabb,
+                Action::Remove => aoe_aabb,
             };
 
             // Check if subdivision is needed
             // (This must happen BEFORE modification to avoid bad data)
             if !octant.at_max_depth() && octant.depth() < max_depth && leaves.contains(&octant) &&
-                (tool.is_convex() && (newvals_intersect || matches!(tool_aabb.intersect(aabb), ContainedBy))) ||
-                (tool.is_concave() && (newvals_intersect || !matches!(tool.aoe_aabb().intersect(aabb), DoesNotIntersect)))
+                (tool.is_convex() && (newvals_intersect || matches!(check_aabb.intersect(aabb), ContainedBy))) ||
+                (tool.is_concave() && (newvals_intersect || !matches!(aoe_aabb.intersect(aabb), DoesNotIntersect)))
                 {
                     subdivide.push((*octant, values.clone()));
             }
@@ -178,13 +214,31 @@ impl OctantMap {
             // TODO: Collapse check somehow
         }
 
+        let root_aabb = OctantKey::default().aabb();
+        let mut tool_aabb = tool.tool_aabb();
+        let mut aoe_aabb = tool.aoe_aabb();
+        
+        // Try to intersect the tool AABBs to fit inside the terrain
+        match root_aabb.intersect(tool_aabb) {
+            DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            Intersects(new_aabb) => tool_aabb = new_aabb,
+            ContainedBy => tool_aabb = root_aabb,
+            Contains => (),
+        }
+        match root_aabb.intersect(aoe_aabb) {
+            DoesNotIntersect => return,
+            Intersects(new_aabb) => aoe_aabb = new_aabb,
+            ContainedBy => aoe_aabb = root_aabb,
+            Contains => (),
+        }
+
         // Iterate through octants, filter by which are below max_depth, apply, and subdivide
         let mut subdivide: Vec<(OctantKey, [f32; 8])> = Vec::new();
         {
             let leaves = &self.leaves;
             let octants = &mut self.octants;
             octants.iter_mut().filter(|(octant, _)| octant.depth() <= max_depth)
-                .for_each(|(octant, values)| apply_to_octant(tool, action, max_depth, octant, values, leaves, &mut subdivide));
+                .for_each(|(octant, values)| apply_to_octant(tool, tool_aabb, aoe_aabb, action, max_depth, octant, values, leaves, &mut subdivide));
         }
         
         while !subdivide.is_empty() {
@@ -192,7 +246,7 @@ impl OctantMap {
             self.subdivide_with_old_values(octant, &values);
             octant.children().into_iter().for_each(|child| {
                 let values = self.octants.get_mut(&child).unwrap();
-                apply_to_octant(tool, action, max_depth, &child, values, &self.leaves, &mut subdivide)
+                apply_to_octant(tool, tool_aabb, aoe_aabb, action, max_depth, &child, values, &self.leaves, &mut subdivide)
             })
         }
     }
@@ -253,4 +307,46 @@ fn octant_map_test_recurse() {
     let mesh = time_test!(map.generate_mesh(8), "OctantMap Mesh Generate");
     let mesh = time_test!(mesh.index(), "OctantMap Mesh Index");
     time_test!(mesh.write_obj_to_file(&"octant_map.obj"), "OctantMap Mesh Write To File");
+}
+
+#[test]
+#[ignore]
+fn edge_tool_test_filter() {
+    use crate::tool::Sphere;
+    use utils::time_test;
+    use glam::vec3;
+
+    let mut terrain = OctantMap::new();
+    let tool = Sphere::new(
+        vec3(0.0,0.5,0.5),
+        0.24531,
+    );
+
+    time_test!(terrain.apply_tool_recurse(&tool, Action::Place, 5), "Edge Tool Place");
+
+    let mesh = time_test!(terrain.generate_mesh(255), "Edge Tool Generate Mesh");
+    let mesh = time_test!(mesh.index(), "Edge Tool Index Mesh");
+
+    mesh.write_obj_to_file("octant_map_edge_tool.obj");
+}
+
+#[test]
+#[ignore]
+fn edge_tool_test_recurse() {
+    use crate::tool::Sphere;
+    use utils::time_test;
+    use glam::vec3;
+
+    let mut terrain = OctantMap::new();
+    let tool = Sphere::new(
+        vec3(0.0,0.5,0.5),
+        0.24531,
+    );
+
+    time_test!(terrain.apply_tool_recurse(&tool, Action::Place, 5), "Edge Tool Place");
+
+    let mesh = time_test!(terrain.generate_mesh(255), "Edge Tool Generate Mesh");
+    let mesh = time_test!(mesh.index(), "Edge Tool Index Mesh");
+
+    mesh.write_obj_to_file("octant_map_edge_tool.obj");
 }

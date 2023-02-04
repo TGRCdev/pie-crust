@@ -1,5 +1,5 @@
 use crate::{
-    tool::{ Tool, Action, AABB, IntersectType },
+    tool::{ Tool, Action, AABB, IntersectType::* },
     utils,
 };
 use glam::Vec3;
@@ -105,7 +105,6 @@ impl NaiveOctreeCell {
             Action::Place => tool_aabb,
         };
         
-        use IntersectType::*;
         // Check if subdivision is needed
         if self.children.is_none() && current_depth < max_depth {
             if (tool.is_convex() && (diff_signs || matches!(check_aabb.intersect(cell_aabb), ContainedBy))) ||
@@ -252,16 +251,16 @@ impl NaiveOctree {
         
         // Intersect the tool AABBs to fit inside the terrain
         match terrain_aabb.intersect(aoe_aabb) {
-            IntersectType::DoesNotIntersect => return,
-            IntersectType::Intersects(new_aabb) => aoe_aabb = new_aabb,
-            IntersectType::ContainedBy => aoe_aabb = terrain_aabb,
-            IntersectType::Contains => (),
+            DoesNotIntersect => return,
+            Intersects(new_aabb) => aoe_aabb = new_aabb,
+            ContainedBy => aoe_aabb = terrain_aabb,
+            Contains => (),
         }
         match terrain_aabb.intersect(tool_aabb) {
-            IntersectType::DoesNotIntersect => if matches!(action, Action::Place) { return }, 
-            IntersectType::Intersects(new_aabb) => tool_aabb = new_aabb,
-            IntersectType::ContainedBy => tool_aabb = terrain_aabb,
-            IntersectType::Contains => (),
+            DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            Intersects(new_aabb) => tool_aabb = new_aabb,
+            ContainedBy => tool_aabb = terrain_aabb,
+            Contains => (),
         }
 
         self.root.apply_tool(tool, tool_aabb, aoe_aabb, action, terrain_aabb, 0, max_depth);
@@ -274,18 +273,18 @@ impl NaiveOctree {
 
         let terrain_aabb = AABB{ start: Vec3::ZERO, size: Vec3::splat(self.scale) };
         
-        // Intersect the tool AABBs to fit inside the terrain
-        match terrain_aabb.intersect(aoe_aabb) {
-            IntersectType::DoesNotIntersect => return,
-            IntersectType::Intersects(new_aabb) => aoe_aabb = new_aabb,
-            IntersectType::ContainedBy => aoe_aabb = terrain_aabb,
-            IntersectType::Contains => (),
-        }
+        // Try to intersect the tool AABBs to fit inside the terrain
         match terrain_aabb.intersect(tool_aabb) {
-            IntersectType::DoesNotIntersect => if matches!(action, Action::Place) { return }, 
-            IntersectType::Intersects(new_aabb) => tool_aabb = new_aabb,
-            IntersectType::ContainedBy => tool_aabb = terrain_aabb,
-            IntersectType::Contains => (),
+            DoesNotIntersect => if matches!(action, Action::Place) { return }, 
+            Intersects(new_aabb) => tool_aabb = new_aabb,
+            ContainedBy => tool_aabb = terrain_aabb,
+            Contains => (),
+        }
+        match terrain_aabb.intersect(aoe_aabb) {
+            DoesNotIntersect => return,
+            Intersects(new_aabb) => aoe_aabb = new_aabb,
+            ContainedBy => aoe_aabb = terrain_aabb,
+            Contains => (),
         }
 
         rayon::in_place_scope(|_| {

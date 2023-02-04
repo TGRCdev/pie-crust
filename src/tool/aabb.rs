@@ -137,6 +137,16 @@ impl AABB {
         }
     }
 
+    pub fn get_intersect_aabb(&self, other: AABB) -> Option<AABB> {
+        let intersect = self.intersect(other);
+        match intersect {
+            IntersectType::DoesNotIntersect => None,
+            IntersectType::Intersects(new_aabb) => Some(new_aabb),
+            IntersectType::ContainedBy => Some(*self),
+            IntersectType::Contains => Some(other),
+        }
+    }
+
     pub fn octree_subdivide(&self) -> [AABB; 8] {
         let half_size = self.size / 2.0;
         let mut cells: ArrayVec<AABB, 8> = ArrayVec::new();
