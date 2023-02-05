@@ -21,6 +21,5 @@ pub const CUBE_CORNERS: [Vec3; 8] = [
 ];
 
 pub mod naive_octree;
-pub mod octant_map;
 
 pub mod utils;
