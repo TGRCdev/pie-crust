@@ -340,10 +340,14 @@ impl NaiveOctree {
 fn terrain_test() {
     use crate::tool::Sphere;
     use utils::time_test;
-    use glam::{ Vec3A, vec3a, vec3 };
+    use glam::{ Vec3A, vec3a, vec3, Quat };
 
     let mut terrain = NaiveOctree::new(100.0);
-    let mut tool = Tool::new(Sphere { radius: 30.0 }).scaled(vec3(1.0,0.5,1.0)).translated(Vec3A::splat(50.0));
+    let mut tool = Tool::new(Sphere { radius: 30.0 })
+        .scaled(vec3(1.0,0.5,1.0))
+        .rotated(Quat::from_rotation_y(90f32.to_radians()))
+        .translated(Vec3A::splat(50.0));
+    println!("Rotated AABB: {:?}", tool.tool_aabb());
     
     time_test!(terrain.apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
     

@@ -176,8 +176,12 @@ impl AABB {
     }
 
     pub fn transform_with(&mut self, transform: Affine3A) {
-        self.start = transform.transform_point3(self.start);
-        self.size = transform.transform_vector3(self.size);
+        let point1 = transform.transform_point3(self.start);
+        let point2 = transform.transform_point3(self.start + self.size);
+        
+        self.start = point1.min(point2);
+        let end = point1.max(point2);
+        self.size = end - self.start;
     }
 }
 
