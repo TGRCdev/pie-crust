@@ -1,4 +1,4 @@
-use glam::{ Vec3, vec3 };
+use glam::{ Vec3, vec3, Affine3A };
 use arrayvec::ArrayVec;
 use crate::CUBE_CORNERS;
 
@@ -173,6 +173,11 @@ impl AABB {
             start: self.start + (half_size * corner),
             size: half_size,
         }
+    }
+
+    pub fn transform_with(&mut self, transform: Affine3A) {
+        self.start = transform.transform_point3(self.start);
+        self.size = transform.transform_vector3(self.size);
     }
 }
 

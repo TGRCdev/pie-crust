@@ -1,9 +1,10 @@
 use crate::{
-    tool::{ Tool, Action, AABB, IntersectType::* },
+    tool::{ Tool, ToolFunc, Action, AABB, IntersectType::* },
     utils,
 };
 use glam::Vec3;
 use crate::{ UnindexedMesh, marching_cubes::march_cube };
+use std::borrow::Borrow;
 
 #[cfg(feature = "multi-thread")]
 use lockfree::stack::Stack;
@@ -75,9 +76,9 @@ impl NaiveOctreeCell {
 
     /// Handles applying to the current Cell and determining if children need subdivision.
     /// This is split from apply_tool and par_apply_tool to deduplicate code.
-    fn apply_tool_impl<T: Tool + ?Sized>(
+    fn apply_tool_impl<F: ToolFunc>(
         &mut self,
-        tool: &T,
+        tool: &Tool<F>,
         tool_aabb: AABB,
         aoe_aabb: AABB,
         action: Action,
@@ -119,9 +120,9 @@ impl NaiveOctreeCell {
         self.values = newvals;
     }
 
-    pub fn apply_tool<T: Tool + ?Sized>(
+    pub fn apply_tool<F: ToolFunc>(
         &mut self,
-        tool: &T,
+        tool: &Tool<F>,
         tool_aabb: AABB,
         aoe_aabb: AABB,
         action: Action,
@@ -137,7 +138,7 @@ impl NaiveOctreeCell {
             children.iter_mut()
                 .zip(child_aabbs.into_iter())
                 .for_each(|(child, aabb)| child.apply_tool(tool, tool_aabb, aoe_aabb, action, aabb, current_depth+1, max_depth));
-            
+
             // Check if collapse is needed
             if children.iter().all(|child| child.is_leaf() && !child.intersects_surface()) {
                 self.collapse_cell();
@@ -146,9 +147,9 @@ impl NaiveOctreeCell {
     }
 
     #[cfg(feature = "multi-thread")]
-    pub fn par_apply_tool<T: Tool + Sync + ?Sized>(
+    pub fn par_apply_tool<F: ToolFunc + Sync>(
         &mut self,
-        tool: &T,
+        tool: &Tool<F>,
         tool_aabb: AABB,
         aoe_aabb: AABB,
         action: Action,
@@ -243,7 +244,11 @@ impl NaiveOctree {
         }
     }
 
-    pub fn apply_tool<T: Tool + Copy + ?Sized>(&mut self, tool: &T, action: Action, max_depth: u8) {
+    pub fn apply_tool<T: Borrow<Tool<F>>, F: ToolFunc>(&mut self, tool: T, action: Action, max_depth: u8) {
+        self._apply_tool(tool.borrow(), action, max_depth);
+    }
+    
+    pub fn _apply_tool<F: ToolFunc>(&mut self, tool: &Tool<F>, action: Action, max_depth: u8) {
         let mut tool_aabb = tool.tool_aabb();
         let mut aoe_aabb = tool.aoe_aabb();
 
@@ -263,11 +268,17 @@ impl NaiveOctree {
             Contains => (),
         }
 
+        println!("Applying");
         self.root.apply_tool(tool, tool_aabb, aoe_aabb, action, terrain_aabb, 0, max_depth);
     }
 
     #[cfg(feature = "multi-thread")]
-    pub fn par_apply_tool<T: Tool + ?Sized + Sync>(&mut self, tool: &T, action: Action, max_depth: u8) {
+    pub fn par_apply_tool<T: Borrow<Tool<F>> + Sync + Send + Copy, F: ToolFunc + Sync>(&mut self, tool: T, action: Action, max_depth: u8) {
+        self._par_apply_tool(tool.borrow(), action, max_depth);
+    }
+
+    #[cfg(feature = "multi-thread")]
+    fn _par_apply_tool<F: ToolFunc + Sync>(&mut self, tool: &Tool<F>, action: Action, max_depth: u8) {
         let mut tool_aabb = tool.tool_aabb();
         let mut aoe_aabb = tool.aoe_aabb();
 
@@ -288,7 +299,7 @@ impl NaiveOctree {
         }
 
         rayon::in_place_scope(|_| {
-            self.root.par_apply_tool(tool, tool_aabb, aoe_aabb, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
+            self.root.par_apply_tool(tool.borrow(), tool_aabb, aoe_aabb, action, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) }, 0, max_depth);
         });
     }
 
@@ -329,18 +340,16 @@ impl NaiveOctree {
 fn terrain_test() {
     use crate::tool::Sphere;
     use utils::time_test;
+    use glam::{ Vec3A, vec3a, vec3 };
 
     let mut terrain = NaiveOctree::new(100.0);
-    let mut tool = Sphere::new(
-        Vec3::splat(50.0),
-        30.0,
-    );
+    let mut tool = Tool::new(Sphere { radius: 30.0 }).scaled(vec3(1.0,0.5,1.0)).translated(Vec3A::splat(50.0));
     
-    time_test!(terrain.apply_tool(&tool, Action::Place, 8), "NaiveOctree Apply Tool");
+    time_test!(terrain.apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
     
-    tool.radius = 20.0;
-    tool.origin.y = 70.0;
-    time_test!(terrain.apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
+    tool.func.radius = 20.0;
+    tool = Tool::new(tool.func).translated(vec3a(50.0,70.0,50.0));
+    time_test!(terrain.apply_tool(tool, Action::Remove, 5), "NaiveOctree Remove Tool");
 
     let mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
 
@@ -349,6 +358,7 @@ fn terrain_test() {
     let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
     
     time_test!(mesh.write_obj_to_file("naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
+    terrain.generate_octree_frame_mesh(255).index().write_obj_to_file("naive_octree_frame.obj");
 }
 
 #[test]
@@ -356,15 +366,12 @@ fn terrain_test() {
 fn edge_tool_test() {
     use crate::tool::Sphere;
     use utils::time_test;
-    use glam::vec3;
+    use glam::vec3a;
 
     let mut terrain = NaiveOctree::new(100.0);
-    let tool = Sphere::new(
-        vec3(0.0,50.0,50.0),
-        24.583,
-    );
+    let tool = Tool::new(Sphere { radius: 24.583 }).translated(vec3a(0.0,50.0,50.0));
 
-    time_test!(terrain.apply_tool(&tool, Action::Place, 8), "Edge Tool Place");
+    time_test!(terrain.apply_tool(&tool, Action::Place, 3), "Edge Tool Place");
 
     let mesh = time_test!(terrain.generate_mesh(255), "Edge Tool Generate Mesh");
     let mesh = time_test!(mesh.index(), "Edge Tool Index Mesh");
@@ -378,18 +385,16 @@ fn edge_tool_test() {
 fn par_terrain_test() {
     use crate::tool::Sphere;
     use utils::time_test;
+    use glam::{ Vec3A, vec3a };
 
     let mut terrain = NaiveOctree::new(100.0);
-    let mut tool = Sphere::new(
-        Vec3::splat(50.0),
-        30.0,
-    );
+    let mut tool = Tool::new(Sphere { radius: 30.0 }).translated(Vec3A::splat(50.0));
     
-    time_test!(terrain.par_apply_tool(&tool, Action::Place, 8), "NaiveOctree Apply Tool");
+    time_test!(terrain.par_apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
     
-    tool.radius = 20.0;
-    tool.origin.y = 70.0;
-    time_test!(terrain.par_apply_tool(&tool, Action::Remove, 8), "NaiveOctree Remove Tool");
+    tool.func.radius = 20.0;
+    tool = tool.translated(vec3a(0.0, 20.0, 0.0));
+    time_test!(terrain.par_apply_tool(&tool, Action::Remove, 5), "NaiveOctree Remove Tool");
 
     let mesh = time_test!(terrain.par_generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
 
@@ -405,10 +410,7 @@ fn cell_mesh_test() {
     use crate::tool::Sphere;
 
     let mut cell = NaiveOctreeCell::default();
-    let tool = Sphere {
-        origin: Vec3::ZERO,
-        radius: 0.3,
-    };
+    let tool = Tool::new(Sphere { radius: 0.3 });
 
     cell.apply_tool(&tool, tool.tool_aabb(), tool.aoe_aabb(), Action::Place, AABB::ONE_CUBIC_METER, 0, 0);
 
