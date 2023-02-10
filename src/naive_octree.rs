@@ -108,7 +108,7 @@ impl NaiveOctreeCell {
         
         // Check if subdivision is needed
         if self.children.is_none() && current_depth < max_depth {
-            if (tool.is_convex() && (diff_signs || matches!(check_aabb.intersect(cell_aabb), ContainedBy))) ||
+            if (tool.is_convex() && (diff_signs || matches!(check_aabb.intersect(cell_aabb), ContainedBy | Intersects(_)))) ||
                 (tool.is_concave() && !matches!(aoe_aabb.intersect(cell_aabb), DoesNotIntersect))
             {
                 // Tool intersects but does not contain, the cell intersects the isosurface

@@ -50,6 +50,8 @@ impl<F: Clone> Clone for Tool<F> {
     }
 }
 
+impl<F: Copy> Copy for Tool<F> {}
+
 impl<F> Tool<F> {
     pub fn new(func: F) -> Self {
         Self {
@@ -77,6 +79,15 @@ impl<F> Tool<F> {
         self.transform = transform * self.transform;
         self._inverse = self.transform.inverse();
         self
+    }
+
+    pub fn set_transform(&mut self, trns: Affine3A) {
+        self.transform = trns;
+        self._inverse = trns.inverse();
+    }
+
+    pub fn transform(&self) -> &Affine3A {
+        &&self.transform
     }
 
     pub fn inverse_transform(&self) -> &Affine3A {
