@@ -12,7 +12,7 @@ use glam::{ Vec3, Affine3A, Quat, Vec3A };
 pub trait ToolFunc {
     /// Get the relative isovalue of the point, assuming the point
     /// is a corner of a grid cube with extents of `scale` length
-    fn value(&self, pos: Vec3, scale: f32) -> f32;
+    fn value(&self, pos: Vec3) -> f32;
 
     /// Returns the ToolFunc AABB, representing a rough
     /// estimated area of space that might produce values
@@ -94,10 +94,10 @@ impl<F> Tool<F> {
         &self._inverse
     }
 
-    pub fn value(&self, pos: Vec3, scale: f32) -> f32 where F: ToolFunc {
+    pub fn value(&self, pos: Vec3) -> f32 where F: ToolFunc {
         let inverse = self.inverse_transform();
         let local_pos = inverse.transform_point3(pos);
-        self.func.value(local_pos, scale)
+        self.func.value(local_pos)
     }
 
     pub fn tool_aabb(&self) -> AABB where F: ToolFunc {
@@ -139,7 +139,7 @@ fn tool_test() {
 
     let mut tool = Tool::new(Sphere { radius: 5.0 });
     let pos = vec3(4.5,0.0,0.0);
-    println!("tool({}) = {}", pos, tool.value(pos, 1.0));
+    println!("tool({}) = {}", pos, tool.value(pos));
     tool = tool.translated(vec3a(1.0,0.0,0.0));
-    println!("tool({}) = {}", pos, tool.value(pos, 1.0));
+    println!("tool({}) = {}", pos, tool.value(pos));
 }

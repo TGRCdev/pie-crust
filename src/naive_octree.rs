@@ -92,9 +92,8 @@ impl NaiveOctreeCell {
         // to subdivide, but we need to apply them after subdivision so it
         // doesn't muddy up the interpolation
         let mut newvals = self.values;
-        let cube_scale = cell_aabb.size.x;
         cell_aabb.calculate_corners().into_iter().zip(newvals.iter_mut()).for_each(|(pos, value)| {
-            let newval = tool.value(pos, cube_scale);
+            let newval = tool.value(pos);
             action.apply_value(value, newval);
         });
 

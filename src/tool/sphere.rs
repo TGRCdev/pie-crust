@@ -8,8 +8,8 @@ pub struct Sphere {
 }
 
 impl ToolFunc for Sphere {
-    fn value(&self, pos: Vec3, scale: f32) -> f32 {
-        ((self.radius - pos.length()) / scale).clamp(-1.0,1.0)
+    fn value(&self, pos: Vec3) -> f32 {
+        (self.radius - pos.length()).clamp(-1.0,1.0)
     }
 
     fn tool_aabb(&self) -> AABB {
