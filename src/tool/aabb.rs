@@ -23,6 +23,19 @@ impl AABB {
         size: Vec3::ONE,
     };
 
+    pub fn containing(points: impl IntoIterator<Item = Vec3>) -> Self {
+        let mut points = points.into_iter();
+        let start = points.next();
+        if let Some(start) = start {
+            let mut aabb = AABB { start, size: Vec3::ZERO };
+            points.for_each(|p| aabb.expand(p));
+            aabb
+        }
+        else {
+            AABB { start: Vec3::ZERO, size: Vec3::ZERO }
+        }
+    }
+
     pub fn contains(&self, point: Vec3) -> bool
     {
         return point.to_array().into_iter()
@@ -32,6 +45,16 @@ impl AABB {
             {
                 point >= start && point <= start + size
             })
+    }
+
+    pub fn expand(&mut self, point: Vec3) {
+        point.to_array().into_iter()
+            .zip(self.start.as_mut().iter_mut())
+            .zip(self.size.as_mut().iter_mut())
+            .for_each(|((p, start), size)| {
+                *start = start.min(p);
+                *size = size.max(p - *start);
+            });
     }
 
     pub fn from_extents(pos: Vec3, extents: Vec3) -> Self {
@@ -175,13 +198,13 @@ impl AABB {
         }
     }
 
+    pub fn transformed(self, transform: Affine3A) -> Self {
+        let corners = self.calculate_corners().map(|p| transform.transform_point3(p));
+        Self::containing(corners)
+    }
+
     pub fn transform_with(&mut self, transform: Affine3A) {
-        let point1 = transform.transform_point3(self.start);
-        let point2 = transform.transform_point3(self.start + self.size);
-        
-        self.start = point1.min(point2);
-        let end = point1.max(point2);
-        self.size = end - self.start;
+        *self = self.transformed(transform);
     }
 }
 
