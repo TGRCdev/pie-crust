@@ -365,6 +365,36 @@ fn terrain_test() {
 
 #[test]
 #[ignore]
+#[cfg(feature = "multi-thread")]
+fn par_terrain_test() {
+    use crate::tool::Sphere;
+    use utils::time_test;
+    use glam::{ Vec3A, vec3a, vec3, Quat };
+
+    let mut terrain = NaiveOctree::new(100.0);
+    let mut tool = Tool::new(Sphere).scaled(Vec3::splat(30.0))
+        .scaled(vec3(1.0,0.5,1.0))
+        .rotated(Quat::from_rotation_y(90f32.to_radians()))
+        .translated(Vec3A::splat(50.0));
+    println!("Rotated AABB: {:?}", tool.tool_aabb());
+    
+    time_test!(terrain.par_apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
+    
+    tool = Tool::new(tool.func).scaled(Vec3::splat(20.0)).translated(vec3a(50.0,70.0,50.0));
+    time_test!(terrain.par_apply_tool(tool, Action::Remove, 5), "NaiveOctree Remove Tool");
+
+    let mesh = time_test!(terrain.par_generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
+
+    time_test!(mesh.write_obj_to_file("naive_octree_unindexed.obj"), "NaiveOctree UnindexedMesh To File");
+
+    let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
+    
+    time_test!(mesh.write_obj_to_file("naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
+    terrain.generate_octree_frame_mesh(255).index().write_obj_to_file("naive_octree_frame.obj");
+}
+
+#[test]
+#[ignore]
 fn edge_tool_test() {
     use crate::tool::Sphere;
     use utils::time_test;
@@ -379,32 +409,6 @@ fn edge_tool_test() {
     let mesh = time_test!(mesh.index(), "Edge Tool Index Mesh");
 
     mesh.write_obj_to_file("edge_tool.obj");
-}
-
-#[test]
-#[ignore]
-#[cfg(feature = "multi-thread")]
-fn par_terrain_test() {
-    use crate::tool::Sphere;
-    use utils::time_test;
-    use glam::{ Vec3A, vec3a };
-
-    let mut terrain = NaiveOctree::new(100.0);
-    let mut tool = Tool::new(Sphere { radius: 30.0 }).translated(Vec3A::splat(50.0));
-    
-    time_test!(terrain.par_apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
-    
-    tool.func.radius = 20.0;
-    tool = tool.translated(vec3a(0.0, 20.0, 0.0));
-    time_test!(terrain.par_apply_tool(&tool, Action::Remove, 5), "NaiveOctree Remove Tool");
-
-    let mesh = time_test!(terrain.par_generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
-
-    time_test!(mesh.write_obj_to_file("par_naive_octree_unindexed.obj"), "NaiveOctree UnindexedMesh To File");
-
-    let mesh = time_test!(mesh.index(), "NaiveOctree Mesh Indexing");
-    
-    time_test!(mesh.write_obj_to_file("par_naive_octree_indexed.obj"), "NaiveOctree IndexedMesh To File");
 }
 
 #[test]
