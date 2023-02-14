@@ -342,7 +342,7 @@ fn terrain_test() {
     use glam::{ Vec3A, vec3a, vec3, Quat };
 
     let mut terrain = NaiveOctree::new(100.0);
-    let mut tool = Tool::new(Sphere { radius: 30.0 })
+    let mut tool = Tool::new(Sphere).scaled(Vec3::splat(30.0))
         .scaled(vec3(1.0,0.5,1.0))
         .rotated(Quat::from_rotation_y(90f32.to_radians()))
         .translated(Vec3A::splat(50.0));
@@ -350,8 +350,7 @@ fn terrain_test() {
     
     time_test!(terrain.apply_tool(&tool, Action::Place, 5), "NaiveOctree Apply Tool");
     
-    tool.func.radius = 20.0;
-    tool = Tool::new(tool.func).translated(vec3a(50.0,70.0,50.0));
+    tool = Tool::new(tool.func).scaled(Vec3::splat(20.0)).translated(vec3a(50.0,70.0,50.0));
     time_test!(terrain.apply_tool(tool, Action::Remove, 5), "NaiveOctree Remove Tool");
 
     let mesh = time_test!(terrain.generate_mesh(255), "NaiveOctree Generate UnindexedMesh");
@@ -372,7 +371,7 @@ fn edge_tool_test() {
     use glam::vec3a;
 
     let mut terrain = NaiveOctree::new(100.0);
-    let tool = Tool::new(Sphere { radius: 24.583 }).translated(vec3a(0.0,50.0,50.0));
+    let tool = Tool::new(Sphere).scaled(Vec3::splat(24.583)).translated(vec3a(0.0,50.0,50.0));
 
     time_test!(terrain.apply_tool(&tool, Action::Place, 3), "Edge Tool Place");
 
@@ -413,7 +412,7 @@ fn cell_mesh_test() {
     use crate::tool::Sphere;
 
     let mut cell = NaiveOctreeCell::default();
-    let tool = Tool::new(Sphere { radius: 0.3 });
+    let tool = Tool::new(Sphere).scaled(Vec3::splat(0.3));
 
     cell.apply_tool(&tool, tool.tool_aabb(), tool.aoe_aabb(), Action::Place, AABB::ONE_CUBIC_METER, 0, 0);
 

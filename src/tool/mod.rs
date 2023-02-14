@@ -127,7 +127,7 @@ impl<F> Tool<F> {
 fn tool_aabb_test() {
     use aabb::AABB;
 
-    let mut tool = Tool::new(Sphere { radius: 5.0 }).translated(Vec3A::splat(3.0));
+    let mut tool = Tool::new(Sphere).scaled(Vec3::splat(5.0)).translated(Vec3A::splat(3.0));
     assert_eq!(tool.tool_aabb(), AABB { start: Vec3::splat(-2.0), size: Vec3::splat(10.0) });
     tool = tool.scaled(Vec3::splat(0.5));
     println!("{:?}", tool.tool_aabb());
@@ -137,7 +137,7 @@ fn tool_aabb_test() {
 fn tool_test() {
     use glam::{ vec3, vec3a };
 
-    let mut tool = Tool::new(Sphere { radius: 5.0 });
+    let mut tool = Tool::new(Sphere).scaled(Vec3::splat(5.0));
     let pos = vec3(4.5,0.0,0.0);
     println!("tool({}) = {}", pos, tool.value(pos));
     tool = tool.translated(vec3a(1.0,0.0,0.0));
