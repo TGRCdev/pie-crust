@@ -2,7 +2,7 @@ use lerp::Lerp;
 use glam::Vec3;
 use arrayvec::ArrayVec;
 
-/// Splits a cube into 8 cubes, while interpolating corner values
+/// Splits an 8 value cube into 27 values, while interpolating corner values
 /// 
 /// Before:
 /// ```text
@@ -25,29 +25,23 @@ use arrayvec::ArrayVec;
 /// 
 /// After:
 /// ```text
-///          6--------7 6--------7
-///         /        /|/        /|
-///        /        / /        / |
-///       2--------3 2--------3  |
-///       |        | |        |  5
-///     6--------7 6--------7 | /
-///    /|       /|/|       /| |/-7
-///   / |      / / |      / |-1 /|
-///  2--------3 2--------3  |  / |
-///  |  4-----|-|  4-----|--5-3  |
-///  | /      | | /      | /--|--5
-///  |/       |/|/       |/ 7 | /
-///  0--------1 0--------1 /| |/
-///   / |      / / |      / |-1
-///  2--------3 2--------3  |
-///  |  4     | |  4-----|--5
-///  | /      | | /      | /
-///  |/       |/|/       |/
-///  0--------1 0--------1
+///      24-------25--------26
+///      /        /        /|
+///     /        /        / |
+///   15--------16-------17 23
+///   /        /        /| /|
+///  /        /        / |/ |
+/// 6--------7--------8  14 20
+/// |        |        | /| /
+/// |        |        |/ |/
+/// 3--------4--------5  11
+/// |        |        | /
+/// |        |        |/
+/// 0--------1--------2
 /// Note: Gap between cubes is exaggerated. In practice, 
 /// adjacent points are the same.
 ///```
-pub fn subdivide_cell(cell: &[f32; 8]) -> [[f32; 8]; 8] {
+pub fn subdivide_cell_into_grid(cell: &[f32; 8]) -> [f32; 27] {
         // Construct 19 new points, for a total
         // of 27 points
         // 
@@ -148,6 +142,57 @@ pub fn subdivide_cell(cell: &[f32; 8]) -> [[f32; 8]; 8] {
         // New points: 1
         // Total points: 27
         points[13] = points[4].lerp(points[22], 0.5);
+
+        points
+}
+
+/// Splits a cube into 8 cubes, while interpolating corner values
+/// 
+/// Before:
+/// ```text
+///       6-----------------7
+///      /|                /|
+///     / |               / |
+///    /  |              /  |
+///   /   |             /   |
+///  /    |            /    |
+/// 2-----------------3     |
+/// |     |           |     |
+/// |     4-----------|-----5
+/// |    /            |    /
+/// |   /             |   /
+/// |  /              |  /
+/// | /               | /
+/// |/                |/
+/// 0-----------------1
+/// ```
+/// 
+/// After:
+/// ```text
+///          6--------7 6--------7
+///         /        /|/        /|
+///        /        / /        / |
+///       2--------3 2--------3  |
+///       |        | |        |  5
+///     6--------7 6--------7 | /
+///    /|       /|/|       /| |/-7
+///   / |      / / |      / |-1 /|
+///  2--------3 2--------3  |  / |
+///  |  4-----|-|  4-----|--5-3  |
+///  | /      | | /      | /--|--5
+///  |/       |/|/       |/ 7 | /
+///  0--------1 0--------1 /| |/
+///   / |      / / |      / |-1
+///  2--------3 2--------3  |
+///  |  4     | |  4-----|--5
+///  | /      | | /      | /
+///  |/       |/|/       |/
+///  0--------1 0--------1
+/// Note: Gap between cubes is exaggerated. In practice, 
+/// adjacent points are the same.
+///```
+pub fn subdivide_cell(cell: &[f32; 8]) -> [[f32; 8]; 8] {
+        let points = subdivide_cell_into_grid(cell);
 
         let make_cell = |start_index: usize| -> [f32; 8] {
                 [
