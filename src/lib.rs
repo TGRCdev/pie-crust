@@ -9,6 +9,7 @@ pub use mesh::*;
 
 mod marching_cubes;
 
+/// The corners of a unit cube in Z-index order.
 pub const CUBE_CORNERS: [Vec3; 8] = [
     vec3(0.0,0.0,0.0),
     vec3(1.0,0.0,0.0),

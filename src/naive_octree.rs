@@ -11,6 +11,10 @@ use lockfree::stack::Stack;
 #[cfg(feature = "multi-thread")]
 use rayon::prelude::*;
 
+/// A single octant within a [NaiveOctree].
+/// 
+/// For most cases, you shouldn't have to work with this
+/// class directly, and should use [NaiveOctree] instead.
 #[derive(Debug)]
 pub struct NaiveOctreeCell {
     pub values: [f32; 8],
@@ -27,6 +31,8 @@ impl Default for NaiveOctreeCell {
 }
 
 impl NaiveOctreeCell {
+    /// Splits this cell into 8 child cells, interpolating the corner values
+    /// to provide new corners to the newly constructed children.
     pub fn subdivide_cell(&mut self) {
         if self.children.is_some() {
             return;
@@ -58,18 +64,26 @@ impl NaiveOctreeCell {
         self.children = Some(new_cells);
     }
 
+    /// Removes this cell's children if they exist.
     pub fn collapse_cell(&mut self) {
         self.children = None;
     }
 
+    /// Returns true if the cell has no children.
     pub fn is_leaf(&self) -> bool {
         self.children.is_none()
     }
 
+    /// Returns true if the cell has children.
     pub fn has_children(&self) -> bool {
         self.children.is_some()
     }
 
+    /// Returns true if this cell intersects the isosurface.
+    /// 
+    /// If all of the cell's corner values are one sign (positive or negative),
+    /// then the cell is either inside (positive) or outside (negative) of the
+    /// isosurface. Otherwise, the cell is intersected by the isosurface.
     pub fn intersects_surface(&self) -> bool {
         self.values.windows(2).any(|vals| vals[0].signum() != vals[1].signum())
     }
@@ -119,6 +133,9 @@ impl NaiveOctreeCell {
         self.values = newvals;
     }
 
+    /// Applies the [Tool] to the Terrain with the given [Action].
+    /// Will subdivide the Terrain if needed up to `max_depth`. This
+    /// method is used by [`NaiveOctree::apply_tool`].
     pub fn apply_tool<F: ToolFunc>(
         &mut self,
         tool: &Tool<F>,
@@ -145,6 +162,9 @@ impl NaiveOctreeCell {
         }
     }
 
+    /// Applies the [Tool] to the Terrain with the given [Action].
+    /// Will subdivide the Terrain if needed up to `max_depth`. This
+    /// method is used by [`NaiveOctree::par_apply_tool`].
     #[cfg(feature = "multi-thread")]
     pub fn par_apply_tool<F: ToolFunc + Sync>(
         &mut self,
@@ -172,6 +192,8 @@ impl NaiveOctreeCell {
         }
     }
 
+    /// Uses Marching Cubes to generate resulting mesh triangles and stores them in `faces`. This method
+    /// is used by [`NaiveOctree::generate_mesh`].
     pub fn generate_mesh(&self, faces: &mut Vec<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
         if current_depth < max_depth {
             if let Some(children) = self.children.as_ref() {
@@ -187,8 +209,10 @@ impl NaiveOctreeCell {
         faces.extend(march_cube(&corners, &self.values));
     }
 
+    /// Uses Marching Cubes to generate resulting mesh triangles and stores them in `faces`. This method
+    /// is used by [`NaiveOctree::par_generate_mesh`].
     #[cfg(feature = "multi-thread")]
-    pub fn par_generate_mesh(&self, vertices: &Stack<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
+    pub fn par_generate_mesh(&self, faces: &Stack<[Vec3; 3]>, current_depth: u8, max_depth: u8, cell_aabb: AABB) {
         use rayon::prelude::*;
 
         if current_depth < max_depth {
@@ -197,7 +221,7 @@ impl NaiveOctreeCell {
                 children.par_iter()
                 .zip(child_aabbs.into_par_iter())
                 .for_each(|(child, aabb)| {
-                    child.par_generate_mesh(vertices, current_depth, max_depth, aabb)
+                    child.par_generate_mesh(faces, current_depth, max_depth, aabb)
                 });
                 return;
             }
@@ -205,9 +229,10 @@ impl NaiveOctreeCell {
         
         let tris = march_cube(&cell_aabb.calculate_corners(), &self.values);
 
-        vertices.extend(tris);
+        faces.extend(tris);
     }
 
+    /// Debugging method to generate an Octree frame.
     fn generate_octree_frame_mesh(&self, faces: &mut Vec<[Vec3; 3]>, max_depth: u8, cell_aabb: AABB) {
         use utils::{ line_vertices, LineDir };
         
@@ -229,6 +254,8 @@ impl NaiveOctreeCell {
     }
 }
 
+/// A naive implementation of a Sparse Voxel Octree using
+/// recursion to access the child octants.
 #[derive(Debug)]
 pub struct NaiveOctree {
     root: NaiveOctreeCell,
@@ -243,6 +270,8 @@ impl NaiveOctree {
         }
     }
 
+    /// Applies the [Tool] to the Terrain with the given [Action].
+    /// Will subdivide the Terrain if needed up to `max_depth`.
     pub fn apply_tool<T: Borrow<Tool<F>>, F: ToolFunc>(&mut self, tool: T, action: Action, max_depth: u8) {
         self._apply_tool(tool.borrow(), action, max_depth);
     }
@@ -271,6 +300,8 @@ impl NaiveOctree {
         self.root.apply_tool(tool, tool_aabb, aoe_aabb, action, terrain_aabb, 0, max_depth);
     }
 
+    /// Applies the [Tool] to the Terrain with the given [Action].
+    /// Will subdivide the Terrain if needed up to `max_depth`.
     #[cfg(feature = "multi-thread")]
     pub fn par_apply_tool<T: Borrow<Tool<F>> + Sync + Send + Copy, F: ToolFunc + Sync>(&mut self, tool: T, action: Action, max_depth: u8) {
         self._par_apply_tool(tool.borrow(), action, max_depth);
@@ -302,6 +333,7 @@ impl NaiveOctree {
         });
     }
 
+    /// Uses Marching Cubes to generate an [UnindexedMesh].
     pub fn generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
         let mut faces = Vec::new();
         self.root.generate_mesh(&mut faces, 0, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });
@@ -311,6 +343,7 @@ impl NaiveOctree {
         }
     }
 
+    /// Uses Marching Cubes to generate an [UnindexedMesh].
     #[cfg(feature = "multi-thread")]
     pub fn par_generate_mesh(&self, max_depth: u8) -> UnindexedMesh {
         let faces = Stack::new();
@@ -324,6 +357,7 @@ impl NaiveOctree {
         }
     }
 
+    /// Debugging method to generate an Octree frame.
     pub fn generate_octree_frame_mesh(&self, max_depth: u8) -> UnindexedMesh {
         let mut faces = Vec::new();
         self.root.generate_octree_frame_mesh(&mut faces, max_depth, AABB { start: Vec3::ZERO, size: Vec3::splat(self.scale) });

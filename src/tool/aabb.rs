@@ -2,27 +2,35 @@ use glam::{ Vec3, vec3, Affine3A };
 use arrayvec::ArrayVec;
 use crate::CUBE_CORNERS;
 
+/// Axis-Aligned Bounding Box
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct AABB {
     pub start: Vec3,
     pub size: Vec3,
 }
 
+/// Describes how an AABB intersects with another AABB.
 #[derive(Debug, PartialEq)]
 pub enum IntersectType {
-    DoesNotIntersect, // The two AABBs do not intersect
-    Intersects(AABB), // Contains the AABB of the intersection
-    Contains, // This AABB contains the entirety of the other AABB
-    ContainedBy, // The other AABB contains the entirety of this AABB
+    /// The two AABBs do not intersect
+    DoesNotIntersect,
+    /// The two AABBs intersect, and the intersecting space is provided
+    Intersects(AABB),
+    /// This AABB encloses the other AABB
+    Contains,
+    /// This AABB is enclosed by the other AABB
+    ContainedBy,
 }
 
 impl AABB {
-
+    /// An identity AABB that extends from (0,0,0) to (1,1,1)
     pub const ONE_CUBIC_METER: Self = Self {
         start: Vec3::ZERO,
         size: Vec3::ONE,
     };
 
+    /// Create a new AABB that encloses all of the points provided by the
+    /// iterator.
     pub fn containing(points: impl IntoIterator<Item = Vec3>) -> Self {
         let mut points = points.into_iter();
         let start = points.next();
@@ -36,6 +44,7 @@ impl AABB {
         }
     }
 
+    /// Returns true if `point` lies within the AABB.
     pub fn contains(&self, point: Vec3) -> bool
     {
         return point.to_array().into_iter()
@@ -47,6 +56,7 @@ impl AABB {
             })
     }
 
+    /// Expands the AABB to contain `point`.
     pub fn expand(&mut self, point: Vec3) {
         point.to_array().into_iter()
             .zip(self.start.as_mut().iter_mut())
@@ -57,6 +67,8 @@ impl AABB {
             });
     }
 
+    /// Create an AABB centered on `pos`, using `extents` as the length
+    /// of the box's edges.
     pub fn from_extents(pos: Vec3, extents: Vec3) -> Self {
         let half_extents = extents / 2.0;
         return Self {
@@ -65,13 +77,19 @@ impl AABB {
         };
     }
 
+    /// Create an AABB centered on `pos`, using `radius * 2` as the length
+    /// of the box's edges.
+    /// 
+    /// eg. `AABB::from_radius(Vec3::ZERO, 1.0)` would produce an AABB from
+    /// (-1,-1,-1) to (1,1,1).
     pub fn from_radius(pos: Vec3, radius: f32) -> Self {
         Self {
             start: pos - radius,
             size: Vec3::splat(radius*2.0),
         }
     }
-
+ 
+    /// Get the positions of the AABB's corners in Z-index order.
     pub fn calculate_corners(&self) -> [Vec3; 8] {
         assert!(self.size.is_negative_bitmask() == 0);
         let corners = CUBE_CORNERS.map(|offset| {
@@ -81,6 +99,7 @@ impl AABB {
         return corners;
     }
 
+    /// Calculate the intersection between two AABBs and return the result.
     pub fn intersect(&self, other: AABB) -> IntersectType {
         #[derive(Debug)]
         enum AxisIntersectType {
@@ -160,6 +179,8 @@ impl AABB {
         }
     }
 
+    /// Calculate the intersection between two AABBs and return the
+    /// resulting intersection AABB, if it exists.
     pub fn get_intersect_aabb(&self, other: AABB) -> Option<AABB> {
         let intersect = self.intersect(other);
         match intersect {
@@ -170,6 +191,8 @@ impl AABB {
         }
     }
 
+    /// Subdivide the AABB into 8 equally-sized AABBs. The resulting
+    /// array is in Z-index order.
     pub fn octree_subdivide(&self) -> [AABB; 8] {
         let half_size = self.size / 2.0;
         let mut cells: ArrayVec<AABB, 8> = ArrayVec::new();
@@ -187,6 +210,9 @@ impl AABB {
         cells.into_inner().unwrap()
     }
 
+    /// Calculate the AABB of octant child `index`.
+    /// 
+    /// See also: [`octree_subdivide`](Self::octree_subdivide)
     pub fn octree_child(&self, index: u8) -> AABB {
         assert!(index < 8);
         let half_size = self.size / 2.0;
@@ -198,11 +224,17 @@ impl AABB {
         }
     }
 
+    /// Returns an AABB that contains the corners of the AABB
+    /// after they have been transformed by `transform`.
     pub fn transformed(self, transform: Affine3A) -> Self {
         let corners = self.calculate_corners().map(|p| transform.transform_point3(p));
         Self::containing(corners)
     }
 
+    /// Transforms the AABB's corners by `transform`, and expands to
+    /// contain the resulting corner positions.
+    /// 
+    /// See also: [`transformed`](Self::transformed)
     pub fn transform_with(&mut self, transform: Affine3A) {
         *self = self.transformed(transform);
     }

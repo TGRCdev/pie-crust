@@ -9,9 +9,11 @@ pub use action::*;
 
 use glam::{ Vec3, Affine3A, Quat, Vec3A };
 
+/// A ToolFunc represents a function that can return a density value for a given
+/// point. i.e. a [Sphere] will produce positive values within the Sphere's surface,
+/// and negative values outside of it.
 pub trait ToolFunc {
-    /// Get the relative isovalue of the point, assuming the point
-    /// is a corner of a grid cube with extents of `scale` length
+    /// Get the isovalue of `pos` in the ToolFunc.
     fn value(&self, pos: Vec3) -> f32;
 
     /// Returns the ToolFunc AABB, representing a rough
@@ -19,7 +21,7 @@ pub trait ToolFunc {
     /// greater than 0.0
     fn tool_aabb(&self) -> AABB;
 
-    /// The Area-Of-Effect AABB, representing a rough
+    /// Returns the Area-Of-Effect AABB, representing a rough
     /// estimated area of space that might produce values
     /// greater than -1.0
     fn aoe_aabb(&self) -> AABB;
@@ -34,6 +36,7 @@ pub trait ToolFunc {
     }
 }
 
+/// A wrapper for ToolFunc that gives it a Transform.
 pub struct Tool<F> {
     pub func: F,
     transform: Affine3A,

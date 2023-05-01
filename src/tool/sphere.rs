@@ -2,6 +2,9 @@ use glam::Vec3;
 
 use crate::tool::{ ToolFunc, AABB };
 
+/// A ToolFunc that represents a Sphere of radius 1.0.
+/// For Spheres of different radiuses, use [Tool](super::Tool) with
+/// a scaled Transform.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sphere;
 

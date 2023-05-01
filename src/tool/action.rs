@@ -1,7 +1,11 @@
+/// Action represents operations to perform on a Terrain with a given
+/// Tool.
 #[derive(Clone, Copy, Debug)]
 pub enum Action
 {
+    /// Subtract material from the Terrain
     Remove,
+    /// Add material to the Terrain
     Place,
 }
 
